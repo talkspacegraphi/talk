@@ -95,6 +95,9 @@ function MessageBubble({
   const [showVolumeSlider, setShowVolumeSlider] = useState(false);
   const [isDraggingProgress, setIsDraggingProgress] = useState(false);
   const [hoverTime, setHoverTime] = useState<number | null>(null);
+  // Volume drag state
+  const [isDraggingVolume, setIsDraggingVolume] = useState(false);
+  const volumeSliderRef = useRef<HTMLDivElement>(null);
 
   // Check if message is exactly "67" for special animation
   const is67Message = message.content?.trim() === '67' && !message.media?.length;
@@ -345,6 +348,30 @@ function MessageBubble({
     const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
     setHoverTime(pct * duration);
   };
+
+  // Volume drag handlers
+  useEffect(() => {
+    if (!isDraggingVolume) return;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!volumeSliderRef.current) return;
+      const rect = volumeSliderRef.current.getBoundingClientRect();
+      const pct = 1 - Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height));
+      handleVolumeChange(pct);
+    };
+
+    const handleMouseUp = () => {
+      setIsDraggingVolume(false);
+    };
+
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isDraggingVolume]);
 
   useEffect(() => {
     const audio = audioRef.current;
@@ -936,8 +963,18 @@ function MessageBubble({
                                 )}
                               </button>
                               
-                              <div className="h-24 w-1.5 bg-white/20 rounded-full relative cursor-pointer group/vol"
+                              <div 
+                                ref={volumeSliderRef}
+                                className={`h-24 w-1.5 bg-white/20 rounded-full relative cursor-pointer group/vol transition-all ${isDraggingVolume ? 'scale-125' : ''}`}
+                                onMouseDown={(e) => {
+                                  e.stopPropagation();
+                                  setIsDraggingVolume(true);
+                                  const rect = e.currentTarget.getBoundingClientRect();
+                                  const pct = 1 - Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height));
+                                  handleVolumeChange(pct);
+                                }}
                                 onClick={(e) => {
+                                  e.stopPropagation();
                                   const rect = e.currentTarget.getBoundingClientRect();
                                   const pct = 1 - Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height));
                                   handleVolumeChange(pct);
@@ -948,9 +985,13 @@ function MessageBubble({
                                   style={{ height: `${audioVolume * 100}%` }}
                                 />
                                 <div 
-                                  className="absolute w-3 h-3 bg-white rounded-full shadow-lg -translate-x-1/2 opacity-0 group-hover/vol:opacity-100 transition-opacity"
+                                  className={`absolute w-3 h-3 bg-white rounded-full shadow-lg -translate-x-1/2 transition-all ${isDraggingVolume ? 'scale-125' : 'opacity-0 group-hover/vol:opacity-100'}`}
                                   style={{ bottom: `calc(${audioVolume * 100}% - 6px)`, left: '50%' }}
                                 />
+                                {/* Drag indicator */}
+                                {isDraggingVolume && (
+                                  <div className="absolute -right-1 top-1/2 -translate-y-1/2 w-2 h-2 bg-white rounded-full shadow-lg animate-pulse" />
+                                )}
                               </div>
                               
                               <span className="text-[10px] text-white/50 mt-1">{Math.round(audioVolume * 100)}%</span>
