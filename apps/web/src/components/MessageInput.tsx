@@ -263,10 +263,10 @@ export default function MessageInput({ chatId, isBlocked, blockedByOther, onUnbl
         socket.emit('send_message', {
           chatId,
           content: trimmed || null,
-          type: messageType,
+          type: attachments[0].type, // Use actual type (audio/image/file) instead of forcing voice
           media: uploadResults.map((result, i) => ({
             url: result.url,
-            type: attachments[i].type === 'audio' ? 'voice' : attachments[i].type,
+            type: attachments[i].type, // Keep as audio file, not voice message
             filename: result.filename,
             size: result.size,
           })),
@@ -286,12 +286,13 @@ export default function MessageInput({ chatId, isBlocked, blockedByOther, onUnbl
       try {
         const result = await api.uploadFile(attachment.file);
         const isAudioType = attachment.type === 'audio';
+        // Send audio files as 'audio' type, not 'voice' (Discord-style)
         socket.emit('send_message', {
           chatId,
           content: trimmed || null,
-          type: isAudioType ? 'voice' : attachment.type,
+          type: isAudioType ? 'audio' : attachment.type,
           mediaUrl: result.url,
-          mediaType: isAudioType ? 'voice' : attachment.type,
+          mediaType: isAudioType ? 'audio' : attachment.type,
           fileName: result.filename,
           fileSize: result.size,
           replyToId: replyTo?.id || null,
