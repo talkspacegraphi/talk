@@ -957,56 +957,49 @@ function MessageBubble({
                             className="absolute bottom-full right-0 mb-2 p-3 bg-black/90 backdrop-blur-xl rounded-xl border border-white/10 shadow-xl z-50"
                             style={{ 
                               marginBottom: '8px',
-                              maxWidth: 'min(90vw, 200px)',
+                              marginRight: 'max(8px, env(safe-area-inset-right))',
+                              maxWidth: 'min(90vw, 220px)',
                               right: '0'
                             }}
                           >
-                            <div className="flex flex-col items-center gap-1">
-                              <button
-                                onClick={() => {
-                                  handleVolumeChange(audioVolume > 0 ? 0 : 0.7);
-                                }}
-                                className="p-1 hover:bg-white/10 rounded transition-colors"
-                              >
-                                {audioVolume === 0 ? (
-                                  <Volume2 size={14} className="text-white/50" />
-                                ) : (
-                                  <Volume2 size={14} className="text-white/70" />
-                                )}
-                              </button>
+                            <div className="flex flex-col items-center gap-2">
+                              <span className="text-[10px] text-white/50">{Math.round(audioVolume * 100)}%</span>
                               
-                              <div 
-                                ref={volumeSliderRef}
-                                className={`h-24 w-1.5 bg-white/20 rounded-full relative cursor-pointer group/vol transition-all overflow-hidden ${isDraggingVolume ? 'scale-110' : ''}`}
-                                onMouseDown={(e) => {
-                                  e.stopPropagation();
-                                  setIsDraggingVolume(true);
-                                  const rect = e.currentTarget.getBoundingClientRect();
-                                  const pct = 1 - Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height));
-                                  handleVolumeChange(pct);
-                                }}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  const rect = e.currentTarget.getBoundingClientRect();
-                                  const pct = 1 - Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height));
-                                  handleVolumeChange(pct);
-                                }}
-                              >
-                                <div 
-                                  className="absolute bottom-0 left-0 w-full bg-gradient-to-t from-purple-400 to-pink-400 rounded-full transition-all"
-                                  style={{ height: `${Math.min(audioVolume * 100, 100)}%` }}
-                                />
-                                <div 
-                                  className={`absolute w-3 h-3 bg-white rounded-full shadow-lg transition-all ${isDraggingVolume ? 'scale-125' : 'opacity-0 group-hover/vol:opacity-100'}`}
-                                  style={{ bottom: `clamp(-6px, calc(${audioVolume * 100}% - 6px), 90px)`, left: '50%', transform: 'translateX(-50%)' }}
-                                />
-                                {/* Drag indicator */}
-                                {isDraggingVolume && (
-                                  <div className="absolute -right-1 top-1/2 -translate-y-1/2 w-2 h-2 bg-white rounded-full shadow-lg animate-pulse" />
-                                )}
+                              {/* Horizontal volume slider */}
+                              <div className="flex items-center gap-2 w-full">
+                                <button
+                                  onClick={() => {
+                                    handleVolumeChange(audioVolume > 0 ? 0 : 0.7);
+                                  }}
+                                  className="p-1 hover:bg-white/10 rounded transition-colors shrink-0"
+                                >
+                                  {audioVolume === 0 ? (
+                                    <Volume2 size={14} className="text-white/50" />
+                                  ) : (
+                                    <Volume2 size={14} className="text-white/70" />
+                                  )}
+                                </button>
+                                
+                                <div className="flex-1 h-2 bg-white/20 rounded-full relative cursor-pointer group/vol overflow-hidden">
+                                  <input
+                                    type="range"
+                                    min="0"
+                                    max="1"
+                                    step="0.01"
+                                    value={audioVolume}
+                                    onChange={(e) => handleVolumeChange(parseFloat(e.target.value))}
+                                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+                                  />
+                                  <div 
+                                    className="absolute top-0 left-0 h-full bg-gradient-to-r from-purple-400 to-pink-400 rounded-full transition-all"
+                                    style={{ width: `${audioVolume * 100}%` }}
+                                  />
+                                  <div 
+                                    className="absolute top-1/2 -translate-y-1/2 w-3 h-3 bg-white rounded-full shadow-lg opacity-0 group-hover/vol:opacity-100 transition-opacity"
+                                    style={{ left: `${audioVolume * 100}%`, transform: 'translate(-50%, -50%)' }}
+                                  />
+                                </div>
                               </div>
-                              
-                              <span className="text-[10px] text-white/50 mt-1">{Math.round(audioVolume * 100)}%</span>
                             </div>
                           </div>
                         </>
