@@ -322,7 +322,8 @@ export default function ChatPage() {
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      className="h-full flex bg-surface p-0 md:p-3 gap-0 md:gap-3 overflow-hidden relative"
+      className="h-full flex flex-col md:flex-row bg-surface p-0 md:p-3 gap-0 md:gap-3 overflow-hidden relative"
+      style={{ paddingTop: 'env(safe-area-inset-top)' }}
     >
       <div className="flex-1 flex relative w-full h-full">
         <Sidebar />

@@ -1654,9 +1654,10 @@ export default function CallModal({ isOpen, onClose, targetUser, callType: initi
                     step="0.05"
                     value={remoteVolume}
                     onChange={(e) => handleVolumeChange(parseFloat(e.target.value))}
-                    className="w-full h-1.5 rounded-full appearance-none bg-zinc-600 accent-vortex-500 cursor-pointer"
+                    className="h-1.5 rounded-full appearance-none bg-zinc-600 accent-vortex-500 cursor-pointer flex-1"
+                    style={{ width: 'calc(100% - 56px)' }}
                   />
-                  <span className="text-xs text-zinc-300 w-8 text-right">{Math.round(remoteVolume * 100)}%</span>
+                  <span className="text-xs text-zinc-300 w-8 text-right shrink-0">{Math.round(remoteVolume * 100)}%</span>
                 </div>
               </div>
             </>

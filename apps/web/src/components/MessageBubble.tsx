@@ -977,7 +977,7 @@ function MessageBubble({
                               
                               <div 
                                 ref={volumeSliderRef}
-                                className={`h-24 w-1.5 bg-white/20 rounded-full relative cursor-pointer group/vol transition-all ${isDraggingVolume ? 'scale-125' : ''}`}
+                                className={`h-24 w-1.5 bg-white/20 rounded-full relative cursor-pointer group/vol transition-all overflow-hidden ${isDraggingVolume ? 'scale-110' : ''}`}
                                 onMouseDown={(e) => {
                                   e.stopPropagation();
                                   setIsDraggingVolume(true);
@@ -994,11 +994,11 @@ function MessageBubble({
                               >
                                 <div 
                                   className="absolute bottom-0 left-0 w-full bg-gradient-to-t from-purple-400 to-pink-400 rounded-full transition-all"
-                                  style={{ height: `${audioVolume * 100}%` }}
+                                  style={{ height: `${Math.min(audioVolume * 100, 100)}%` }}
                                 />
                                 <div 
-                                  className={`absolute w-3 h-3 bg-white rounded-full shadow-lg -translate-x-1/2 transition-all ${isDraggingVolume ? 'scale-125' : 'opacity-0 group-hover/vol:opacity-100'}`}
-                                  style={{ bottom: `calc(${audioVolume * 100}% - 6px)`, left: '50%' }}
+                                  className={`absolute w-3 h-3 bg-white rounded-full shadow-lg transition-all ${isDraggingVolume ? 'scale-125' : 'opacity-0 group-hover/vol:opacity-100'}`}
+                                  style={{ bottom: `clamp(-6px, calc(${audioVolume * 100}% - 6px), 90px)`, left: '50%', transform: 'translateX(-50%)' }}
                                 />
                                 {/* Drag indicator */}
                                 {isDraggingVolume && (
