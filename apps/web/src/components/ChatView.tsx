@@ -985,7 +985,6 @@ export default function ChatView({ onStartCall, onStartGroupCall }: { onStartCal
                 )}
               </AnimatePresence>
           </div>
-          </div>
         </motion.div>
       )}
 
