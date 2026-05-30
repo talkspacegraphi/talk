@@ -87,6 +87,14 @@ function MessageBubble({
   const [touchStartPos, setTouchStartPos] = useState<{ x: number; y: number } | null>(null);
   const [show67Modal, setShow67Modal] = useState(false);
   const audioRef67 = useRef<HTMLAudioElement>(null);
+  // Audio player states
+  const [audioVolume, setAudioVolume] = useState(() => {
+    const stored = localStorage.getItem('vortex_audio_volume');
+    return stored ? parseFloat(stored) : 0.7;
+  });
+  const [showVolumeSlider, setShowVolumeSlider] = useState(false);
+  const [isDraggingProgress, setIsDraggingProgress] = useState(false);
+  const [hoverTime, setHoverTime] = useState<number | null>(null);
 
   // Check if message is exactly "67" for special animation
   const is67Message = message.content?.trim() === '67' && !message.media?.length;
@@ -314,6 +322,30 @@ function MessageBubble({
     }
   };
 
+  const handleVolumeChange = (vol: number) => {
+    const audio = audioRef.current;
+    if (audio) {
+      audio.volume = vol;
+    }
+    setAudioVolume(vol);
+    localStorage.setItem('vortex_audio_volume', vol.toString());
+  };
+
+  const handleSeek = (e: React.MouseEvent<HTMLDivElement> | React.MouseEvent<HTMLSpanElement>, duration: number) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    if (audioRef.current) {
+      audioRef.current.currentTime = pct * duration;
+      setAudioProgress(pct * 100);
+    }
+  };
+
+  const handleProgressHover = (e: React.MouseEvent<HTMLDivElement>, duration: number) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    setHoverTime(pct * duration);
+  };
+
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio) return;
@@ -326,6 +358,9 @@ function MessageBubble({
 
     const onLoadedMetadata = () => {
       setAudioDuration(audio.duration);
+      if (audioRef.current) {
+        audioRef.current.volume = audioVolume;
+      }
     };
 
     const onEnded = () => {
@@ -754,14 +789,27 @@ function MessageBubble({
               const nameWithoutExt = fileName.replace(/\.[^/.]+$/, '');
               const title = nameWithoutExt;
               const artist = isMine ? 'Вы' : message.sender?.displayName || message.sender?.username || 'Неизвестный исполнитель';
-                       const isMp3 = !!audioMedia?.filename?.toLowerCase().endsWith('.mp3');
+              const isMp3 = !!audioMedia?.filename?.toLowerCase().endsWith('.mp3');
               
               return (
-                <div className="min-w-[260px] md:min-w-[300px] py-2 px-3 rounded-2xl bg-gradient-to-br from-purple-500/20 to-pink-500/10 border border-white/10">
+                <div 
+                  className="min-w-[280px] md:min-w-[320px] py-3 px-3 rounded-2xl bg-gradient-to-br from-purple-500/15 to-pink-500/10 border border-white/10 hover:border-white/20 transition-all duration-300 group"
+                  onMouseEnter={() => {
+                    if (audioRef.current) audioRef.current.volume = audioVolume;
+                  }}
+                >
+                  <audio
+                    ref={audioRef}
+                    src={audioMedia?.url}
+                    preload="auto"
+                    onError={(e) => console.error('Audio load error:', e)}
+                    volume={audioVolume}
+                  />
+                  
                   <div className="flex items-start gap-3">
                     {/* Album art / icon */}
-                    <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center flex-shrink-0 shadow-lg">
-                      <Music size={22} className="text-white" />
+                    <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center flex-shrink-0 shadow-lg group-hover:shadow-xl group-hover:scale-105 transition-all duration-300">
+                      <Music size={24} className="text-white" />
                     </div>
                     
                     {/* Title and artist */}
@@ -769,71 +817,147 @@ function MessageBubble({
                       <div className="flex items-center justify-between">
                         <div className="flex flex-col">
                           <p className="text-sm font-semibold text-white truncate flex items-center">
-                          {title}
-                          {isMp3 && (<span className="ml-2 text-xs text-white/70 bg-white/10 rounded px-1">MP3</span>)}
-                        </p>
-                          {audioMedia?.size ? (<p className="text-xs text-white/60">{(audioMedia.size / 1024).toFixed(1)} KB</p>) : null}
+                            {title}
+                            {isMp3 && (<span className="ml-2 text-xs text-white/60 bg-white/10 rounded px-1 py-0.5">MP3</span>)}
+                          </p>
+                          {audioMedia?.size ? (<p className="text-xs text-white/50 mt-0.5">{(audioMedia.size / 1024).toFixed(1)} KB</p>) : null}
                         </div>
-                        <a
-                          href={audioMedia?.url}
-                          download={fileName}
-                          onClick={(e) => e.stopPropagation()}
-                          className="p-1.5 rounded-lg hover:bg-white/10 transition-colors"
-                          title="Скачать"
-                        >
-                          <Download size={14} className="text-white/70" />
-                        </a>
+                        
+                        {/* Download button with hover animation */}
+                        <div className="relative">
+                          <a
+                            href={audioMedia?.url}
+                            download={fileName}
+                            onClick={(e) => e.stopPropagation()}
+                            className="p-2 rounded-xl bg-white/10 hover:bg-white/20 opacity-0 group-hover:opacity-100 translate-y-1 group-hover:translate-y-0 transition-all duration-300 flex items-center justify-center"
+                            title="Скачать"
+                          >
+                            <Download size={16} className="text-white" />
+                          </a>
+                        </div>
                       </div>
-                      <p className="text-xs text-white/60 truncate mt-0.5">{artist}</p>
+                      <p className="text-xs text-white/50 truncate mt-0.5">{artist}</p>
                     </div>
                   </div>
                   
-                  {/* Player */}
-                  <div className="mt-3 flex items-center gap-2">
-                    <audio
-                      ref={audioRef}
-                      src={audioMedia?.url}
-                      preload="auto"
-                      onError={(e) => console.error('Audio load error:', e)}
-                    />
+                  {/* Enhanced Player */}
+                  <div className="mt-4 flex items-center gap-3">
                     <button
                       onClick={toggleAudio}
-                      className="w-8 h-8 rounded-full bg-white/20 hover:bg-white/30 flex items-center justify-center flex-shrink-0 transition-colors"
+                      className="w-10 h-10 rounded-full bg-white/20 hover:bg-white/30 flex items-center justify-center flex-shrink-0 transition-all active:scale-95 shadow-lg hover:shadow-xl"
                     >
                       {isPlaying ? (
-                        <Pause size={14} className="text-white" fill="currentColor" />
+                        <Pause size={16} className="text-white" fill="currentColor" />
                       ) : (
-                        <Play size={14} className="text-white ml-0.5" fill="currentColor" />
+                        <Play size={16} className="text-white ml-0.5" fill="currentColor" />
                       )}
                     </button>
                     
-                    {/* Progress bar */}
+                    {/* Progress bar with seeking */}
                     <div className="flex-1">
+                      {/* Time and progress bar */}
                       <div 
-                        className="h-1.5 bg-white/20 rounded-full cursor-pointer group"
-                        onClick={(e) => {
-                          const audio = audioRef.current;
-                          if (!audio || !audio.duration) return;
-                          const rect = e.currentTarget.getBoundingClientRect();
-                          const pct = (e.clientX - rect.left) / rect.width;
-                          audio.currentTime = pct * audio.duration;
-                          setAudioProgress(pct * 100);
-                          if (!isPlaying) toggleAudio();
-                        }}
+                        className="relative h-2 bg-white/15 rounded-full cursor-pointer group/progress"
+                        onClick={(e) => handleSeek(e, audioDuration || 0)}
+                        onMouseMove={(e) => handleProgressHover(e, audioDuration || 0)}
+                        onMouseLeave={() => setHoverTime(null)}
                       >
+                        {/* Hover time preview */}
+                        {hoverTime !== null && (
+                          <div 
+                            className="absolute -top-8 px-2 py-1 bg-black/80 rounded-lg text-xs text-white pointer-events-none transform -translate-x-1/2 whitespace-nowrap"
+                            style={{ left: `${(hoverTime / (audioDuration || 1)) * 100}%` }}
+                          >
+                            {formatDuration(hoverTime)}
+                          </div>
+                        )}
+                        
+                        {/* Progress fill */}
                         <div 
-                          className="h-full bg-gradient-to-r from-purple-400 to-pink-400 rounded-full transition-all"
+                          className="absolute left-0 top-0 h-full bg-gradient-to-r from-purple-400 to-pink-400 rounded-full transition-all group-hover/progress:bg-gradient-to-r group-hover/progress:from-purple-300 group-hover/progress:to-pink-300"
                           style={{ width: `${audioProgress}%` }}
                         />
+                        
+                        {/* Draggable knob */}
+                        <div 
+                          className="absolute top-1/2 -translate-y-1/2 w-4 h-4 bg-white rounded-full shadow-lg opacity-0 group-hover/progress:opacity-100 transition-opacity"
+                          style={{ left: `calc(${audioProgress}% - 8px)` }}
+                        />
                       </div>
-                      <div className="flex justify-between mt-1">
-                        <span className="text-[10px] text-white/60">
-                          {isPlaying ? formatDuration(audioRef.current?.currentTime || 0) : '0:00'}
+                      
+                      {/* Time display */}
+                      <div className="flex justify-between mt-1.5">
+                        <span className="text-[11px] text-white/60 font-medium tabular-nums">
+                          {isPlaying 
+                            ? formatDuration(audioRef.current?.currentTime || 0) 
+                            : '0:00'}
                         </span>
-                        <span className="text-[10px] text-white/60">
+                        <span className="text-[11px] text-white/60 font-medium tabular-nums">
                           {formatDuration(audioDuration || 0)}
                         </span>
                       </div>
+                    </div>
+                    
+                    {/* Volume control */}
+                    <div className="relative">
+                      <button
+                        onClick={() => setShowVolumeSlider(!showVolumeSlider)}
+                        className="p-2 rounded-lg hover:bg-white/10 transition-colors"
+                        title="Громкость"
+                      >
+                        {audioVolume === 0 ? (
+                          <Volume2 size={16} className="text-white/70" />
+                        ) : audioVolume < 0.5 ? (
+                          <Volume2 size={16} className="text-white/70" />
+                        ) : (
+                          <Volume2 size={16} className="text-white/70" />
+                        )}
+                      </button>
+                      
+                      {/* Volume slider popup */}
+                      {showVolumeSlider && (
+                        <>
+                          <div 
+                            className="fixed inset-0 z-40" 
+                            onClick={() => setShowVolumeSlider(false)}
+                          />
+                          <div className="absolute bottom-full right-0 mb-2 p-3 bg-black/90 backdrop-blur-xl rounded-xl border border-white/10 shadow-xl">
+                            <div className="flex flex-col items-center gap-1">
+                              <button
+                                onClick={() => {
+                                  handleVolumeChange(audioVolume > 0 ? 0 : 0.7);
+                                }}
+                                className="p-1 hover:bg-white/10 rounded transition-colors"
+                              >
+                                {audioVolume === 0 ? (
+                                  <Volume2 size={14} className="text-white/50" />
+                                ) : (
+                                  <Volume2 size={14} className="text-white/70" />
+                                )}
+                              </button>
+                              
+                              <div className="h-24 w-1.5 bg-white/20 rounded-full relative cursor-pointer group/vol"
+                                onClick={(e) => {
+                                  const rect = e.currentTarget.getBoundingClientRect();
+                                  const pct = 1 - Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height));
+                                  handleVolumeChange(pct);
+                                }}
+                              >
+                                <div 
+                                  className="absolute bottom-0 left-0 w-full bg-gradient-to-t from-purple-400 to-pink-400 rounded-full transition-all"
+                                  style={{ height: `${audioVolume * 100}%` }}
+                                />
+                                <div 
+                                  className="absolute w-3 h-3 bg-white rounded-full shadow-lg -translate-x-1/2 opacity-0 group-hover/vol:opacity-100 transition-opacity"
+                                  style={{ bottom: `calc(${audioVolume * 100}% - 6px)`, left: '50%' }}
+                                />
+                              </div>
+                              
+                              <span className="text-[10px] text-white/50 mt-1">{Math.round(audioVolume * 100)}%</span>
+                            </div>
+                          </div>
+                        </>
+                      )}
                     </div>
                   </div>
                 </div>
