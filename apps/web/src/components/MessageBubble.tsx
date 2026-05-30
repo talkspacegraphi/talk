@@ -735,7 +735,7 @@ function MessageBubble({
 
             {/* Голосовое */}
             {hasVoice && (
-              <div className="flex items-center gap-3 min-w-[240px] md:min-w-[280px] py-1">
+              <div className="flex items-center gap-3 w-full max-w-[260px] md:max-w-[280px] py-1 overflow-hidden">
                 <audio
                   ref={audioRef}
                   src={media.find((m) => m.type === 'voice')?.url}
@@ -762,7 +762,7 @@ function MessageBubble({
                 <div className="flex-1 min-w-0">
                   {/* Waveform visualization */}
                   <div
-                    className="flex items-end gap-[3px] md:gap-1 h-8 md:h-9 cursor-pointer group"
+                    className="flex items-end gap-[3px] md:gap-1 h-8 md:h-9 cursor-pointer group flex-1 min-w-0 overflow-hidden"
                     onClick={(e) => {
                       const audio = audioRef.current;
                       if (!audio || !audio.duration) return;
@@ -820,7 +820,7 @@ function MessageBubble({
               
               return (
                 <div 
-                  className="min-w-[280px] md:min-w-[320px] py-3 px-3 rounded-2xl bg-gradient-to-br from-purple-500/15 to-pink-500/10 border border-white/10 hover:border-white/20 transition-all duration-300 group"
+                  className="w-full max-w-[280px] md:max-w-[320px] py-3 px-3 rounded-2xl bg-gradient-to-br from-purple-500/15 to-pink-500/10 border border-white/10 hover:border-white/20 transition-all duration-300 group overflow-hidden"
                   onMouseEnter={() => {
                     if (audioRef.current) audioRef.current.volume = audioVolume;
                   }}
@@ -881,10 +881,10 @@ function MessageBubble({
                     </button>
                     
                     {/* Progress bar with seeking */}
-                    <div className="flex-1">
+                    <div className="flex-1 min-w-0">
                       {/* Time and progress bar */}
                       <div 
-                        className="relative h-2 bg-white/15 rounded-full cursor-pointer group/progress"
+                        className="relative h-2 bg-white/15 rounded-full cursor-pointer group/progress overflow-visible"
                         onClick={(e) => handleSeek(e, audioDuration || 0)}
                         onMouseMove={(e) => handleProgressHover(e, audioDuration || 0)}
                         onMouseLeave={() => setHoverTime(null)}
@@ -905,10 +905,15 @@ function MessageBubble({
                           style={{ width: `${audioProgress}%` }}
                         />
                         
-                        {/* Draggable knob */}
+                        {/* Draggable knob - always visible */}
                         <div 
-                          className="absolute top-1/2 -translate-y-1/2 w-4 h-4 bg-white rounded-full shadow-lg opacity-0 group-hover/progress:opacity-100 transition-opacity"
-                          style={{ left: `calc(${audioProgress}% - 8px)` }}
+                          className="absolute top-1/2 w-4 h-4 bg-white rounded-full shadow-lg transition-opacity"
+                          style={{ 
+                            left: `clamp(0px, calc(${audioProgress}% - 8px), calc(100% - 16px))`,
+                            top: '50%',
+                            transform: 'translateY(-50%)',
+                            opacity: '1'
+                          }}
                         />
                       </div>
                       
@@ -926,7 +931,7 @@ function MessageBubble({
                     </div>
                     
                     {/* Volume control */}
-                    <div className="relative">
+                    <div className="relative flex-shrink-0">
                       <button
                         onClick={() => setShowVolumeSlider(!showVolumeSlider)}
                         className="p-2 rounded-lg hover:bg-white/10 transition-colors"
@@ -941,14 +946,21 @@ function MessageBubble({
                         )}
                       </button>
                       
-                      {/* Volume slider popup */}
+                      {/* Volume slider popup - stays within viewport bounds */}
                       {showVolumeSlider && (
                         <>
                           <div 
                             className="fixed inset-0 z-40" 
                             onClick={() => setShowVolumeSlider(false)}
                           />
-                          <div className="absolute bottom-full right-0 mb-2 p-3 bg-black/90 backdrop-blur-xl rounded-xl border border-white/10 shadow-xl">
+                          <div 
+                            className="absolute bottom-full right-0 mb-2 p-3 bg-black/90 backdrop-blur-xl rounded-xl border border-white/10 shadow-xl z-50"
+                            style={{ 
+                              marginBottom: '8px',
+                              maxWidth: 'min(90vw, 200px)',
+                              right: '0'
+                            }}
+                          >
                             <div className="flex flex-col items-center gap-1">
                               <button
                                 onClick={() => {

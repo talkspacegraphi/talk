@@ -694,7 +694,7 @@ export default function MessageInput({ chatId, isBlocked, blockedByOther, onUnbl
 
   return (
     <div
-      className="z-10 px-6 pt-2 pb-6 flex-shrink-0 bg-transparent relative"
+      className="z-10 px-4 md:px-6 pt-2 pb-6 md:pb-6 flex-shrink-0 bg-transparent relative safe-area-inset-bottom"
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}

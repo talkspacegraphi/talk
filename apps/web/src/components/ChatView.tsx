@@ -677,7 +677,7 @@ export default function ChatView({ onStartCall, onStartGroupCall }: { onStartCal
           initial={{ y: -20, opacity: 0 }}
           animate={{ y: 0, opacity: 1 }}
           transition={{ type: 'spring', stiffness: 400, damping: 25 }}
-          className="chat-header h-[76px] flex items-center justify-between px-4 md:px-6 border-b border-border/40 bg-surface-secondary/80 backdrop-blur-xl z-20 flex-shrink-0"
+          className="chat-header h-[68px] md:h-[76px] flex items-center justify-between px-4 md:px-6 border-b border-border/40 bg-surface-secondary/80 backdrop-blur-xl z-20 flex-shrink-0"
         >
           {/* Back button for mobile */}
           <motion.button

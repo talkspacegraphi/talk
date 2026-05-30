@@ -19,6 +19,7 @@ export default function App() {
   }, [appFont]);
 
   // Electron titlebar takes 32px (h-8). On desktop Electron, push content down.
+  // On mobile, never add any padding for titlebar.
   useEffect(() => {
     const isElectron = !!(window as any).electronAPI;
     const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;

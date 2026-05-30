@@ -68,16 +68,19 @@
   }
 }
 
+/* Safe area for notched devices - applied to containers, not root to avoid conflicts */
+.safe-area-inset {
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+}
+
 html, body, #root {
   height: 100%;
   margin: 0;
   padding: 0;
   overflow: hidden;
-  /* Safe area for notched devices */
-  padding-top: env(safe-area-inset-top);
-  padding-bottom: env(safe-area-inset-bottom);
-  padding-left: env(safe-area-inset-left);
-  padding-right: env(safe-area-inset-right);
 }
 
 .scrollbar-hide {
