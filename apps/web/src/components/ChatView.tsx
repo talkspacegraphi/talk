@@ -816,9 +816,11 @@ export default function ChatView({ onStartCall, onStartGroupCall }: { onStartCal
             )}
 
             {/* Меню */}
-            <div className="relative" ref={topMenuRef}>
               <button
-                onClick={() => setShowTopMenu(v => !v)}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setShowTopMenu(v => !v);
+                }}
                 className="p-2 rounded-lg hover:bg-surface-hover transition-colors text-zinc-400 hover:text-white"
               >
                 <MoreVertical size={18} />
@@ -831,6 +833,7 @@ export default function ChatView({ onStartCall, onStartGroupCall }: { onStartCal
                     exit={{ opacity: 0, scale: 0.95, y: -5 }}
                     transition={{ duration: 0.15 }}
                     className="absolute right-0 top-full mt-2 w-56 rounded-2xl glass-strong shadow-2xl z-50 py-1.5 ring-1 ring-border/50 backdrop-blur-2xl"
+                    onClick={(e) => e.stopPropagation()}
                   >
                     <button
                       onClick={openSearch}
@@ -955,7 +958,6 @@ export default function ChatView({ onStartCall, onStartGroupCall }: { onStartCal
                                 await api.deleteChat(activeChat);
                                 useChatStore.getState().removeChat(activeChat);
 
-                                // Notify other user if personal chat
                                 if (chat.type === 'personal' && otherMember) {
                                   const socket = getSocket();
                                   if (socket) {
@@ -982,7 +984,7 @@ export default function ChatView({ onStartCall, onStartGroupCall }: { onStartCal
                   </motion.div>
                 )}
               </AnimatePresence>
-            </div>
+          </div>
           </div>
         </motion.div>
       )}
