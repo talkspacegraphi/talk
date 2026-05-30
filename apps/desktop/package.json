@@ -1,0 +1,78 @@
+{
+  "name": "@vortex/desktop",
+  "version": "1.0.0",
+  "description": "Talk Messenger",
+  "main": "dist/main.js",
+  "scripts": {
+    "dev": "concurrently \"tsc -w\" \"electron .\"",
+    "build": "tsc && electron-builder",
+    "build:win": "tsc && electron-builder --win",
+    "build:mac": "tsc && electron-builder --mac",
+    "build:linux": "tsc && electron-builder --linux"
+  },
+  "build": {
+    "appId": "com.talk.messenger",
+    "productName": "Talk",
+    "directories": {
+      "output": "dist-electron",
+      "buildResources": "build"
+    },
+    "files": [
+      "dist/**/*",
+      "package.json",
+      "splash.html"
+    ],
+    "extraResources": [
+      {
+        "from": "../server/dist",
+        "to": "server/dist"
+      },
+      {
+        "from": "../server/node_modules",
+        "to": "server/node_modules"
+      },
+      {
+        "from": "../server/prisma",
+        "to": "server/prisma"
+      },
+      {
+        "from": "../server/.env.production",
+        "to": "server/.env.production"
+      },
+      {
+        "from": "../web/dist",
+        "to": "web/dist"
+      },
+      {
+        "from": "build",
+        "to": "build"
+      },
+      {
+        "from": "splash.html",
+        "to": "splash.html"
+      }
+    ],
+    "win": {
+      "target": ["nsis"],
+      "icon": "build/icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    }
+  },
+  "dependencies": {
+    "electron-store": "^8.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "7zip-bin": "^5.2.0",
+    "concurrently": "^9.1.0",
+    "cross-env": "^10.1.0",
+    "electron": "^28.3.3",
+    "electron-builder": "^24.9.1",
+    "typescript": "^5.7.3"
+  }
+}

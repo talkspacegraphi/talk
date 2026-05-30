@@ -1,0 +1,34 @@
+# Dependencies
+node_modules/
+
+# Build output
+apps/server/dist/
+apps/web/dist/
+
+# Environment files
+.env
+apps/server/.env
+
+# Uploads (user data)
+apps/server/uploads/avatars/*
+!apps/server/uploads/avatars/.gitkeep
+
+# Deploy artifacts
+vortex-deploy/
+vortex-deploy.tar.gz
+
+# Credentials
+CREDENTIALS.txt
+
+# Security audit (personal)
+SECURITY_AUDIT.md
+
+# OS files
+Thumbs.db
+.DS_Store
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo

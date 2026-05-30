@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Загрузка Talk...</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    @keyframes matrix-bg {
+      0% { background-position: 0% 0%; }
+      100% { background-position: 0% 100%; }
+    }
+
+    body {
+      background: #0a0e27;
+      background-image:
+        linear-gradient(rgba(0, 255, 65, 0.03) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(0, 255, 65, 0.03) 1px, transparent 1px);
+      background-size: 50px 50px;
+      animation: matrix-bg 20s linear infinite;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      font-family: 'Courier New', monospace;
+      overflow: hidden;
+      position: relative;
+    }
+
+    .matrix-rain {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      opacity: 0.1;
+    }
+
+    .container {
+      text-align: center;
+      color: #00ff41;
+      z-index: 10;
+      position: relative;
+    }
+
+    .logo-container {
+      width: 150px;
+      height: 150px;
+      margin: 0 auto 30px;
+      position: relative;
+    }
+
+    .logo-hex {
+      width: 100%;
+      height: 100%;
+      position: relative;
+      animation: rotate-hex 8s linear infinite;
+    }
+
+    @keyframes rotate-hex {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+
+    .hex-border {
+      position: absolute;
+      width: 100%;
+      height: 100%;
+      clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);
+      background: linear-gradient(135deg, #00ff41, #00d4ff);
+      animation: pulse-border 2s ease-in-out infinite;
+    }
+
+    @keyframes pulse-border {
+      0%, 100% { opacity: 0.5; transform: scale(1); }
+      50% { opacity: 1; transform: scale(1.05); }
+    }
+
+    .hex-inner {
+      position: absolute;
+      top: 3px;
+      left: 3px;
+      right: 3px;
+      bottom: 3px;
+      clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);
+      background: #0a0e27;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 64px;
+      font-weight: bold;
+      color: #00ff41;
+      text-shadow: 0 0 20px #00ff41;
+    }
+
+    .glitch {
+      position: relative;
+      animation: glitch-text 3s infinite;
+    }
+
+    @keyframes glitch-text {
+      0%, 90%, 100% { transform: translate(0); }
+      92% { transform: translate(-2px, 2px); }
+      94% { transform: translate(2px, -2px); }
+      96% { transform: translate(-2px, -2px); }
+      98% { transform: translate(2px, 2px); }
+    }
+
+    h1 {
+      font-size: 42px;
+      font-weight: bold;
+      margin-bottom: 10px;
+      letter-spacing: 4px;
+      text-transform: uppercase;
+      text-shadow: 0 0 10px #00ff41, 0 0 20px #00ff41;
+      animation: flicker 0.5s infinite alternate;
+    }
+
+    @keyframes flicker {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.8; }
+    }
+
+    .subtitle {
+      font-size: 14px;
+      color: #00d4ff;
+      margin-bottom: 30px;
+      letter-spacing: 2px;
+      opacity: 0.8;
+    }
+
+    .terminal {
+      background: rgba(0, 0, 0, 0.6);
+      border: 1px solid #00ff41;
+      border-radius: 8px;
+      padding: 20px;
+      margin: 0 auto;
+      max-width: 500px;
+      text-align: left;
+      box-shadow: 0 0 30px rgba(0, 255, 65, 0.3);
+    }
+
+    .terminal-line {
+      font-size: 13px;
+      margin: 8px 0;
+      color: #00ff41;
+      opacity: 0;
+      animation: fade-in 0.3s forwards;
+    }
+
+    @keyframes fade-in {
+      to { opacity: 1; }
+    }
+
+    .terminal-line:nth-child(1) { animation-delay: 0.1s; }
+    .terminal-line:nth-child(2) { animation-delay: 0.3s; }
+    .terminal-line:nth-child(3) { animation-delay: 0.5s; }
+    .terminal-line:nth-child(4) { animation-delay: 0.7s; }
+    .terminal-line:nth-child(5) { animation-delay: 0.9s; }
+
+    .cursor {
+      display: inline-block;
+      width: 8px;
+      height: 14px;
+      background: #00ff41;
+      margin-left: 4px;
+      animation: blink 1s infinite;
+    }
+
+    @keyframes blink {
+      0%, 50% { opacity: 1; }
+      51%, 100% { opacity: 0; }
+    }
+
+    .progress-bar {
+      width: 100%;
+      height: 4px;
+      background: rgba(0, 255, 65, 0.2);
+      border-radius: 2px;
+      margin-top: 20px;
+      overflow: hidden;
+    }
+
+    .progress-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #00ff41, #00d4ff);
+      width: 0%;
+      animation: progress 20s linear forwards;
+      box-shadow: 0 0 10px #00ff41;
+    }
+
+    @keyframes progress {
+      to { width: 100%; }
+    }
+
+    .status {
+      margin-top: 15px;
+      font-size: 12px;
+      color: #00d4ff;
+      letter-spacing: 1px;
+    }
+
+    .error {
+      background: rgba(255, 0, 0, 0.1);
+      border: 1px solid #ff0041;
+      border-radius: 8px;
+      padding: 20px;
+      margin-top: 20px;
+      color: #ff0041;
+      display: none;
+    }
+
+    .error-title {
+      font-weight: bold;
+      margin-bottom: 10px;
+      font-size: 16px;
+    }
+
+    .retry-btn {
+      margin-top: 15px;
+      padding: 10px 30px;
+      background: linear-gradient(135deg, #00ff41, #00d4ff);
+      color: #0a0e27;
+      border: none;
+      border-radius: 6px;
+      font-size: 14px;
+      font-weight: bold;
+      cursor: pointer;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      transition: all 0.3s;
+      font-family: 'Courier New', monospace;
+    }
+
+    .retry-btn:hover {
+      transform: scale(1.05);
+      box-shadow: 0 0 20px rgba(0, 255, 65, 0.5);
+    }
+
+    .retry-btn:active {
+      transform: scale(0.95);
+    }
+  </style>
+</head>
+<body>
+  <canvas class="matrix-rain" id="matrix"></canvas>
+
+  <div class="container">
+    <div class="logo-container">
+      <div class="logo-hex">
+        <div class="hex-border"></div>
+        <div class="hex-inner">
+          <span class="glitch">T</span>
+        </div>
+      </div>
+    </div>
+
+    <h1>TALK MESSENGER</h1>
+    <div class="subtitle">SECURE COMMUNICATION PROTOCOL</div>
+
+    <div class="terminal" id="terminal">
+      <div class="terminal-line">> Initializing secure connection...</div>
+      <div class="terminal-line">> Loading encryption modules...</div>
+      <div class="terminal-line">> Establishing server handshake...</div>
+      <div class="terminal-line">> Verifying authentication tokens...</div>
+      <div class="terminal-line" id="status-line">> Connecting to server<span class="cursor"></span></div>
+
+      <div class="progress-bar">
+        <div class="progress-fill"></div>
+      </div>
+
+      <div class="status" id="status">STATUS: CONNECTING [<span id="attempt">0</span>/20]</div>
+    </div>
+
+    <div class="error" id="error">
+      <div class="error-title">⚠ CONNECTION FAILED</div>
+      <div id="error-message">Server не отвечает после 20 попыток подключения.</div>
+      <button class="retry-btn" onclick="location.reload()">RETRY CONNECTION</button>
+    </div>
+  </div>
+
+  <script>
+    // Matrix rain effect
+    const canvas = document.getElementById('matrix');
+    const ctx = canvas.getContext('2d');
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+
+    const chars = '01アイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワヲン';
+    const fontSize = 14;
+    const columns = canvas.width / fontSize;
+    const drops = Array(Math.floor(columns)).fill(1);
+
+    function drawMatrix() {
+      ctx.fillStyle = 'rgba(10, 14, 39, 0.05)';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      ctx.fillStyle = '#00ff41';
+      ctx.font = fontSize + 'px monospace';
+
+      for (let i = 0; i < drops.length; i++) {
+        const text = chars[Math.floor(Math.random() * chars.length)];
+        ctx.fillText(text, i * fontSize, drops[i] * fontSize);
+
+        if (drops[i] * fontSize > canvas.height && Math.random() > 0.975) {
+          drops[i] = 0;
+        }
+        drops[i]++;
+      }
+    }
+
+    setInterval(drawMatrix, 50);
+
+    // Server check logic
+    const statusEl = document.getElementById('status');
+    const attemptEl = document.getElementById('attempt');
+    const errorEl = document.getElementById('error');
+    const terminalEl = document.getElementById('terminal');
+    const statusLine = document.getElementById('status-line');
+    let attempts = 0;
+
+    const messages = [
+      '> Bypassing firewall protocols...',
+      '> Decrypting communication channels...',
+      '> Establishing quantum tunnel...',
+      '> Synchronizing data streams...',
+      '> Verifying node integrity...',
+      '> Activating secure mode...',
+    ];
+
+    async function checkServer() {
+      attempts++;
+      attemptEl.textContent = attempts;
+
+      // Update terminal messages
+      if (attempts % 3 === 0 && attempts <= 18) {
+        const msg = messages[Math.floor(attempts / 3) - 1];
+        if (msg) {
+          statusLine.innerHTML = msg + '<span class="cursor"></span>';
+        }
+      }
+
+      try {
+        const response = await fetch('http://localhost:3001/api/health', {
+          method: 'GET',
+          cache: 'no-cache'
+        });
+
+        if (response.ok) {
+          statusLine.innerHTML = '> CONNECTION ESTABLISHED<span class="cursor"></span>';
+          statusEl.textContent = 'STATUS: CONNECTED ✓';
+          statusEl.style.color = '#00ff41';
+          // Let Electron main.ts handle navigation — do NOT reload here
+          return true;
+        }
+      } catch (e) {
+        console.log(`Attempt ${attempts}: server not ready`);
+      }
+
+      if (attempts >= 20) {
+        terminalEl.style.display = 'none';
+        errorEl.style.display = 'block';
+        return false;
+      }
+
+      setTimeout(checkServer, 1000);
+    }
+
+    setTimeout(checkServer, 2000);
+  </script>
+</body>
+</html>

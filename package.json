@@ -1,0 +1,21 @@
+{
+  "name": "vortex-messenger",
+  "private": true,
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "concurrently -k -n server,web -c \"#6366f1\",\"#8b5cf6\" \"npm run dev -w apps/server\" \"npm run dev -w apps/web\"",
+    "dev:desktop": "concurrently -k -n server,web,desktop -c \"#6366f1\",\"#8b5cf6\",\"#f0abfc\" \"npm run dev -w apps/server\" \"npm run dev -w apps/web\" \"npm run dev -w apps/desktop\"",
+    "build": "npm run build -w apps/server && npm run build -w apps/web",
+    "build:desktop": "npm run build -w apps/web && npm run build -w apps/server && npm run build:win -w apps/desktop",
+    "db:push": "npm run db:push -w apps/server",
+    "db:seed": "npm run db:seed -w apps/server",
+    "setup": "npm install && npm run db:push && npm run db:seed",
+    "start": "npm run dev"
+  },
+  "devDependencies": {
+    "7zip-bin": "^5.2.0",
+    "concurrently": "^9.1.0"
+  }
+}
