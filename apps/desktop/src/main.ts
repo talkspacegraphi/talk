@@ -5,7 +5,7 @@ import { spawn, ChildProcess } from 'child_process';
 
 // Remote server URL — change to your Render URL for production builds
 // Set to '' to use embedded local server instead
-const REMOTE_URL = process.env.VORTEX_SERVER_URL || '';
+const REMOTE_URL = process.env.VORTEX_SERVER_URL || 'https://talktop-zkta.onrender.com';
 
 let mainWindow: BrowserWindow | null = null;
 let serverProcess: ChildProcess | null = null;
