@@ -1,0 +1,127 @@
+
+> dev:desktop
+> concurrently -k -n server,web,desktop -c "#6366f1","#8b5cf6","#f0abfc" "npm run dev -w apps/server" "npm run dev -w apps/web" "npm run dev -w apps/desktop"
+
+[server] 
+[server] > @vortex/server@1.0.0 dev
+[server] > tsx watch src/index.ts
+[server] 
+[web] 
+[web] > @vortex/web@1.0.0 dev
+[web] > vite
+[web] 
+[desktop] 
+[desktop] > @vortex/desktop@1.0.0 dev
+[desktop] > concurrently "tsc -w" "electron ."
+[desktop] 
+[desktop] [1] 
+[web] 
+[web]   [32m[1mVITE[22m v6.4.1[39m  [2mready in [0m[1m862[22m[2m[0m ms[22m
+[web] 
+[web]   [32m➜[39m  [1mLocal[22m:   [36mhttp://127.0.0.1:[1m5173[22m/[39m
+[desktop] 
+[desktop] [0] [2J[3J[H19:35:19 - Starting compilation in watch mode...
+[desktop] [0] 
+[desktop] [1] App is ready
+[desktop] [1] Development mode: server should be running separately
+[server] [dotenv@17.3.1] injecting env (5) from .env -- tip: 🔐 prevent building .env in docker: https://dotenvx.com/prebuild
+[server]   🔒 Шифрование сообщений включено (AES-256-GCM)
+[desktop] [1] Waiting for server... attempt 1/5
+[desktop] [1] Waiting for server... attempt 2/5
+[server] 
+[server]   ⚡ Vortex Server запущен на порту 3001
+[server] 
+[server]   ✔ Все пользователи сброшены в offline
+[desktop] [1] Server is ready!
+[desktop] [1] Server ready, loading app...
+[desktop] [0] 
+[desktop] [0] 19:35:22 - Found 0 errors. Watching for file changes.
+[desktop] [1] Loading Vite from: http://127.0.0.1:5173
+[server] 19:50:29 [tsx] change in ./src\middleware\auth.ts Restarting...
+[server] c[dotenv@17.3.1] injecting env (5) from .env -- tip: 🛡️ auth for agents: https://vestauth.com
+[server]   🔒 Шифрование сообщений включено (AES-256-GCM)
+[server] 
+[server]   ⚡ Vortex Server запущен на порту 3001
+[server] 
+[server]   ✔ Все пользователи сброшены в offline
+[web] [2m19:50:57[22m [36m[1m[vite][22m[39m [32mvite.config.ts changed, restarting server...[39m
+[web] [2m19:50:57[22m [36m[1m[vite][22m[39m server restarted.
+[server] 19:52:33 [tsx] change in ./src\socket\index.ts Restarting...
+[server] c[dotenv@17.3.1] injecting env (5) from .env -- tip: 🔐 prevent building .env in docker: https://dotenvx.com/prebuild
+[server]   🔒 Шифрование сообщений включено (AES-256-GCM)
+[server] 
+[server]   ⚡ Vortex Server запущен на порту 3001
+[server] 
+[server]   ✔ Все пользователи сброшены в offline
+[server] 19:52:40 [tsx] change in ./src\socket\index.ts Restarting...
+[server] c[dotenv@17.3.1] injecting env (5) from .env -- tip: ⚙️  write to custom object with { processEnv: myObject }
+[server]   🔒 Шифрование сообщений включено (AES-256-GCM)
+[server] 
+[server]   ⚡ Vortex Server запущен на порту 3001
+[server] 
+[server]   ✔ Все пользователи сброшены в offline
+[server] 19:52:48 [tsx] change in ./src\socket\index.ts Restarting...
+[server] c[dotenv@17.3.1] injecting env (5) from .env -- tip: 🔐 prevent committing .env to code: https://dotenvx.com/precommit
+[server]   🔒 Шифрование сообщений включено (AES-256-GCM)
+[server] 
+[server]   ⚡ Vortex Server запущен на порту 3001
+[server] 
+[server]   ✔ Все пользователи сброшены в offline
+[server] 19:53:00 [tsx] change in ./src\socket\index.ts Restarting...
+[server] c[dotenv@17.3.1] injecting env (5) from .env -- tip: 🛡️ auth for agents: https://vestauth.com
+[server]   🔒 Шифрование сообщений включено (AES-256-GCM)
+[server] 
+[server]   ⚡ Vortex Server запущен на порту 3001
+[server] 
+[server]   ✔ Все пользователи сброшены в offline
+[server] Пользователь подключился: 40c294b2-022e-4787-b1de-617e814fae5b
+[server] Checking content: re Found: null
+[server] Checking content: ку Found: null
+[web] [2m20:02:31[22m [36m[1m[vite][22m[39m [32mvite.config.ts changed, restarting server...[39m
+[web] [2m20:02:31[22m [36m[1m[vite][22m[39m server restarted.
+[desktop] [0] [2J[3J[H20:08:40 - File change detected. Starting incremental compilation...
+[desktop] [0] 
+[desktop] [0] 
+[desktop] [0] 20:08:40 - Found 0 errors. Watching for file changes.
+[desktop] [0] [2J[3J[H20:09:10 - File change detected. Starting incremental compilation...
+[desktop] [0] 
+[desktop] [0] 
+[desktop] [0] 20:09:10 - Found 0 errors. Watching for file changes.
+[desktop] [0] [2J[3J[H20:09:10 - File change detected. Starting incremental compilation...
+[desktop] [0] 
+[desktop] [0] 
+[desktop] [0] 20:09:10 - Found 0 errors. Watching for file changes.
+[desktop] [0] [2J[3J[H20:09:11 - File change detected. Starting incremental compilation...
+[desktop] [0] 
+[desktop] [0] 
+[desktop] [0] 20:09:12 - Found 0 errors. Watching for file changes.
+[desktop] [0] [2J[3J[H20:09:22 - File change detected. Starting incremental compilation...
+[desktop] [0] 
+[desktop] [0] 
+[desktop] [0] 20:09:22 - Found 0 errors. Watching for file changes.
+[desktop] [0] [2J[3J[H20:09:23 - File change detected. Starting incremental compilation...
+[desktop] [0] 
+[desktop] [0] 
+[desktop] [0] 20:09:23 - Found 0 errors. Watching for file changes.
+[desktop] [0] [2J[3J[H20:10:05 - File change detected. Starting incremental compilation...
+[desktop] [0] 
+[desktop] [0] 
+[desktop] [0] 20:10:05 - Found 0 errors. Watching for file changes.
+[desktop] [0] [2J[3J[H20:10:07 - File change detected. Starting incremental compilation...
+[desktop] [0] 
+[desktop] [0] 
+[desktop] [0] 20:10:07 - Found 0 errors. Watching for file changes.
+[desktop] [0] [2J[3J[H21:36:45 - File change detected. Starting incremental compilation...
+[desktop] [0] 
+[desktop] [0] 
+[desktop] [0] 21:36:45 - Found 0 errors. Watching for file changes.
+[desktop] [0] [2J[3J[H21:37:10 - File change detected. Starting incremental compilation...
+[desktop] [0] 
+[desktop] [0] 
+[desktop] [0] 21:37:10 - Found 0 errors. Watching for file changes.
+[desktop] [0] [2J[3J[H21:37:11 - File change detected. Starting incremental compilation...
+[desktop] [0] 
+[desktop] [0] 
+[desktop] [0] 21:37:11 - Found 0 errors. Watching for file changes.
+[server] Пользователь отключился: 40c294b2-022e-4787-b1de-617e814fae5b
+[desktop] [1] electron . exited with code 0

@@ -3,6 +3,18 @@ import { X, Minus, Square } from 'lucide-react';
 
 export default function CustomTitleBar() {
   const [isMaximized, setIsMaximized] = React.useState(false);
+  const [visible, setVisible] = React.useState(false);
+
+  React.useEffect(() => {
+    const check = () => {
+      const isElectron = !!window.electronAPI;
+      const isMobile = window.innerWidth < 768;
+      setVisible(isElectron && !isMobile);
+    };
+    check();
+    window.addEventListener('resize', check);
+    return () => window.removeEventListener('resize', check);
+  }, []);
 
   const handleMinimize = () => {
     if (window.electronAPI) {
@@ -23,11 +35,7 @@ export default function CustomTitleBar() {
     }
   };
 
-  // Проверяем, запущено ли в Electron и не на мобильном
-  const isElectron = typeof window !== 'undefined' && window.electronAPI;
-  const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
-
-  if (!isElectron || isMobile) return null;
+  if (!visible) return null;
 
   return (
     <div

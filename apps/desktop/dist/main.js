@@ -40,6 +40,7 @@ const child_process_1 = require("child_process");
 let mainWindow = null;
 let serverProcess = null;
 let tray = null;
+let trayMenuWindow = null;
 let isQuitting = false;
 function ensureDir(dirPath) {
     if (!fs.existsSync(dirPath)) {
@@ -49,7 +50,7 @@ function ensureDir(dirPath) {
 async function waitForServer(maxAttempts = 10) {
     for (let i = 0; i < maxAttempts; i++) {
         try {
-            const response = await fetch('http://localhost:3001/api/health');
+            const response = await fetch('http://127.0.0.1:3001/api/health');
             if (response.ok) {
                 console.log('Server is ready!');
                 return true;
@@ -61,6 +62,74 @@ async function waitForServer(maxAttempts = 10) {
         await new Promise(resolve => setTimeout(resolve, 1000));
     }
     return false;
+}
+function createTrayMenu() {
+    if (trayMenuWindow && !trayMenuWindow.isDestroyed()) {
+        trayMenuWindow.close();
+        trayMenuWindow = null;
+        return;
+    }
+    const isDev = !electron_1.app.isPackaged;
+    const trayBounds = tray?.getBounds();
+    if (!trayBounds)
+        return;
+    const menuHeight = 192;
+    const menuWidth = 232;
+    const gap = 8;
+    let x;
+    let y;
+    const cursorPoint = electron_1.screen.getCursorScreenPoint();
+    const display = electron_1.screen.getDisplayNearestPoint(cursorPoint);
+    const { x: workX, y: workY, width: workWidth, height: workHeight } = display.workArea;
+    x = Math.round(cursorPoint.x - menuWidth / 2);
+    y = Math.round(cursorPoint.y - menuHeight - gap);
+    if (x < workX + 4)
+        x = workX + 4;
+    if (x + menuWidth > workX + workWidth - 4)
+        x = workX + workWidth - menuWidth - 4;
+    if (y < workY + 4)
+        y = Math.round(cursorPoint.y + gap);
+    trayMenuWindow = new electron_1.BrowserWindow({
+        width: menuWidth,
+        height: menuHeight,
+        x,
+        y,
+        frame: false,
+        resizable: false,
+        skipTaskbar: true,
+        alwaysOnTop: true,
+        transparent: true,
+        hasShadow: false,
+        focusable: true,
+        webPreferences: {
+            preload: path.join(__dirname, 'preload.js'),
+            contextIsolation: true,
+            nodeIntegration: false,
+        },
+    });
+    trayMenuWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+    const menuPath = isDev
+        ? path.join(__dirname, '../tray-menu.html')
+        : path.join(process.resourcesPath, 'tray-menu.html');
+    trayMenuWindow.loadFile(menuPath);
+    trayMenuWindow.webContents.on('did-finish-load', () => {
+        const iconPath = isDev
+            ? path.join(__dirname, '../build/icon.png')
+            : path.join(process.resourcesPath, 'build', 'icon.png');
+        if (fs.existsSync(iconPath)) {
+            const iconUrl = iconPath.replace(/\\/g, '/');
+            trayMenuWindow?.webContents.executeJavaScript(`document.getElementById('appIcon').src = 'file:///${iconUrl}';`);
+        }
+    });
+    trayMenuWindow.on('blur', () => {
+        if (trayMenuWindow && !trayMenuWindow.isDestroyed()) {
+            trayMenuWindow.close();
+        }
+        trayMenuWindow = null;
+    });
+    trayMenuWindow.on('closed', () => {
+        trayMenuWindow = null;
+    });
 }
 function createTray() {
     const isDev = !electron_1.app.isPackaged;
@@ -78,26 +147,6 @@ function createTray() {
     }
     tray = new electron_1.Tray(trayIcon);
     tray.setToolTip('Talk Messenger');
-    const contextMenu = electron_1.Menu.buildFromTemplate([
-        {
-            label: 'Открыть Talk',
-            click: () => {
-                if (mainWindow) {
-                    mainWindow.show();
-                    mainWindow.focus();
-                }
-            }
-        },
-        { type: 'separator' },
-        {
-            label: 'Выход',
-            click: () => {
-                isQuitting = true;
-                electron_1.app.quit();
-            }
-        }
-    ]);
-    tray.setContextMenu(contextMenu);
     tray.on('click', () => {
         if (mainWindow) {
             if (mainWindow.isVisible()) {
@@ -108,6 +157,9 @@ function createTray() {
                 mainWindow.focus();
             }
         }
+    });
+    tray.on('right-click', () => {
+        createTrayMenu();
     });
     tray.on('double-click', () => {
         if (mainWindow) {
@@ -194,7 +246,7 @@ function createWindow() {
             preload: path.join(__dirname, 'preload.js'),
         },
         icon: isDev
-            ? path.join(__dirname, '../../build/icon.png')
+            ? path.join(__dirname, '../build/icon.png')
             : path.join(process.resourcesPath, 'build', 'icon.png'),
         title: 'Talk',
         backgroundColor: '#0a0e27',
@@ -250,12 +302,6 @@ function createWindow() {
         if (!isQuitting) {
             event.preventDefault();
             mainWindow?.hide();
-            if (tray) {
-                tray.displayBalloon({
-                    title: 'Talk',
-                    content: 'Приложение свёрнуто в трей.',
-                });
-            }
         }
     });
     mainWindow.on('closed', () => {
@@ -269,14 +315,47 @@ function createWindow() {
         console.error('Window became unresponsive');
     });
     electron_1.Menu.setApplicationMenu(null);
+    // Grant media permissions (microphone, camera) for calls
+    mainWindow.webContents.session.setPermissionRequestHandler((_webContents, permission, callback) => {
+        const allowedPermissions = ['media', 'microphone', 'camera', 'display-capture', 'desktop-capture'];
+        if (allowedPermissions.includes(permission)) {
+            callback(true);
+        }
+        else {
+            callback(false);
+        }
+    });
+    mainWindow.webContents.session.setPermissionCheckHandler((_webContents, permission, _requestingOrigin, _details) => {
+        const allowedPermissions = ['media', 'microphone', 'camera', 'display-capture', 'desktop-capture'];
+        return allowedPermissions.includes(permission);
+    });
 }
 async function loadMainApp() {
     if (!mainWindow)
         return;
     const isDev = !electron_1.app.isPackaged;
     if (isDev) {
-        const viteUrl = 'http://localhost:5173';
+        const viteUrl = 'http://127.0.0.1:5173';
         console.log(`Loading Vite from: ${viteUrl}`);
+        // Wait for Vite to be ready before loading
+        let ready = false;
+        for (let i = 0; i < 30; i++) {
+            try {
+                const resp = await fetch(viteUrl, { method: 'HEAD' });
+                if (resp.ok || resp.status < 500) {
+                    ready = true;
+                    break;
+                }
+            }
+            catch { }
+            await new Promise(r => setTimeout(r, 500));
+        }
+        if (!ready) {
+            console.error('Vite dev server not ready after 15s!');
+        }
+        // Disable HTTP cache in dev to always get fresh code
+        await mainWindow.webContents.session.clearCache();
+        await mainWindow.webContents.session.clearStorageData();
         await mainWindow.loadURL(viteUrl);
         if (mainWindow && !mainWindow.isDestroyed()) {
             mainWindow.webContents.openDevTools();
@@ -318,6 +397,27 @@ electron_1.app.whenReady().then(async () => {
     });
     electron_1.ipcMain.on('window-close', () => {
         mainWindow?.close();
+    });
+    electron_1.ipcMain.on('tray-action', (_event, action) => {
+        if (trayMenuWindow && !trayMenuWindow.isDestroyed()) {
+            trayMenuWindow.close();
+            trayMenuWindow = null;
+        }
+        switch (action) {
+            case 'show':
+                if (mainWindow) {
+                    mainWindow.show();
+                    mainWindow.focus();
+                }
+                break;
+            case 'minimize':
+                mainWindow?.hide();
+                break;
+            case 'quit':
+                isQuitting = true;
+                electron_1.app.quit();
+                break;
+        }
     });
     createWindow();
     createTray();

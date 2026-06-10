@@ -1,7 +1,10 @@
 import { Router } from 'express';
+import path from 'path';
 import { prisma } from '../db';
 import { AuthRequest } from '../middleware/auth';
 import { USER_SELECT, SENDER_SELECT, uploadUserAvatar, deleteUploadedFile, encryptUploadedFile } from '../shared';
+import { optimizeImage, isImageFile } from '../imageOptimizer';
+import { userCache } from '../cache';
 
 const router = Router();
 
@@ -33,221 +36,7 @@ router.get('/search', async (req: AuthRequest, res) => {
   }
 });
 
-// Профиль пользователя
-router.get('/:id', async (req: AuthRequest, res) => {
-  try {
-    const user = await prisma.user.findUnique({
-      where: { id: String(req.params.id) },
-      select: USER_SELECT,
-    });
-
-    if (!user) {
-      res.status(404).json({ error: 'Пользователь не найден' });
-      return;
-    }
-
-    // Check if current user is blocked by the requested user
-    const blocked = await prisma.blockedUser.findFirst({
-      where: {
-        userId: String(req.params.id),
-        blockedUserId: req.userId!,
-      },
-    });
-
-    // If blocked, hide avatar and show as offline with old lastSeen
-    if (blocked) {
-      res.json({
-        ...user,
-        avatar: null,
-        isOnline: false,
-        lastSeen: new Date('2020-01-01'),
-      });
-      return;
-    }
-
-    res.json(user);
-  } catch (error) {
-    res.status(500).json({ error: 'Ошибка сервера' });
-  }
-});
-
-// Загрузить аватар
-router.post('/avatar', uploadUserAvatar.single('avatar'), encryptUploadedFile, async (req: AuthRequest, res) => {
-  try {
-    if (!req.file) {
-      res.status(400).json({ error: 'Файл не загружен' });
-      return;
-    }
-
-    // Delete old avatar file if exists
-    const currentUser = await prisma.user.findUnique({ where: { id: req.userId }, select: { avatar: true } });
-    if (currentUser?.avatar) deleteUploadedFile(currentUser.avatar);
-
-    const avatarUrl = `/uploads/avatars/${req.file.filename}`;
-
-    const user = await prisma.user.update({
-      where: { id: req.userId },
-      data: { avatar: avatarUrl },
-      select: USER_SELECT,
-    });
-
-    res.json(user);
-  } catch (error) {
-    res.status(500).json({ error: 'Ошибка загрузки аватара' });
-  }
-});
-
-// Загрузить баннер
-router.post('/banner', uploadUserAvatar.single('banner'), encryptUploadedFile, async (req: AuthRequest, res) => {
-  try {
-    if (!req.file) {
-      res.status(400).json({ error: 'Файл не загружен' });
-      return;
-    }
-
-    // Delete old banner file if exists
-    const currentUser = await prisma.user.findUnique({ where: { id: req.userId }, select: { banner: true } });
-    if (currentUser?.banner) deleteUploadedFile(currentUser.banner);
-
-    const bannerUrl = `/uploads/avatars/${req.file.filename}`;
-
-    const user = await prisma.user.update({
-      where: { id: req.userId },
-      data: { banner: bannerUrl, bannerColor: null },
-      select: USER_SELECT,
-    });
-
-    res.json(user);
-  } catch (error) {
-    res.status(500).json({ error: 'Ошибка загрузки баннера' });
-  }
-});
-
-// Установить цветной баннер
-router.post('/banner/color', async (req: AuthRequest, res) => {
-  try {
-    const { color } = req.body;
-
-    if (!color || typeof color !== 'string' || !/^#[0-9A-Fa-f]{6}$/.test(color)) {
-      res.status(400).json({ error: 'Некорректный цвет (формат: #RRGGBB)' });
-      return;
-    }
-
-    // Delete old banner file if exists
-    const currentUser = await prisma.user.findUnique({ where: { id: req.userId }, select: { banner: true } });
-    if (currentUser?.banner) deleteUploadedFile(currentUser.banner);
-
-    const user = await prisma.user.update({
-      where: { id: req.userId },
-      data: { banner: null, bannerColor: color },
-      select: USER_SELECT,
-    });
-
-    res.json(user);
-  } catch (error) {
-    res.status(500).json({ error: 'Ошибка установки цвета баннера' });
-  }
-});
-
-// Удалить баннер
-router.delete('/banner', async (req: AuthRequest, res) => {
-  try {
-    // Delete file from disk
-    const currentUser = await prisma.user.findUnique({ where: { id: req.userId }, select: { banner: true } });
-    if (currentUser?.banner) deleteUploadedFile(currentUser.banner);
-
-    const user = await prisma.user.update({
-      where: { id: req.userId },
-      data: { banner: null, bannerColor: null },
-      select: USER_SELECT,
-    });
-    res.json(user);
-  } catch (error) {
-    res.status(500).json({ error: 'Ошибка удаления баннера' });
-  }
-});
-
-// Установить украшение аватара
-router.post('/avatar/decoration', async (req: AuthRequest, res) => {
-  try {
-    const { decoration } = req.body;
-
-    const validDecorations = ['none', 'headphones', 'roses', 'crown', 'halo', 'fire', 'sparkles', 'hearts', 'stars'];
-
-    if (!decoration || !validDecorations.includes(decoration)) {
-      res.status(400).json({ error: 'Некорректное украшение' });
-      return;
-    }
-
-    const user = await prisma.user.update({
-      where: { id: req.userId },
-      data: { avatarDecoration: decoration === 'none' ? null : decoration },
-      select: USER_SELECT,
-    });
-
-    res.json(user);
-  } catch (error) {
-    res.status(500).json({ error: 'Ошибка установки украшения' });
-  }
-});
-
-// Удалить аватар
-router.delete('/avatar', async (req: AuthRequest, res) => {
-  try {
-    // Delete file from disk
-    const currentUser = await prisma.user.findUnique({ where: { id: req.userId }, select: { avatar: true } });
-    if (currentUser?.avatar) deleteUploadedFile(currentUser.avatar);
-
-    const user = await prisma.user.update({
-      where: { id: req.userId },
-      data: { avatar: null },
-      select: USER_SELECT,
-    });
-    res.json(user);
-  } catch (error) {
-    res.status(500).json({ error: 'Ошибка удаления аватара' });
-  }
-});
-
-// Обновить профиль (username НЕ меняется!)
-router.put('/profile', async (req: AuthRequest, res) => {
-  try {
-    const { displayName, bio, birthday } = req.body;
-
-    // Validate field lengths
-    if (displayName !== undefined && (typeof displayName !== 'string' || displayName.length === 0 || displayName.length > 50)) {
-      res.status(400).json({ error: 'Имя должно быть от 1 до 50 символов' });
-      return;
-    }
-    if (bio !== undefined && bio !== null && (typeof bio !== 'string' || bio.length > 500)) {
-      res.status(400).json({ error: 'Био должно быть не длиннее 500 символов' });
-      return;
-    }
-    if (birthday !== undefined && birthday !== null) {
-      if (typeof birthday !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(birthday) || isNaN(Date.parse(birthday))) {
-        res.status(400).json({ error: 'Некорректный формат даты рождения (YYYY-MM-DD)' });
-        return;
-      }
-    }
-
-    const updateData: Record<string, string | null> = {};
-    if (displayName !== undefined) updateData.displayName = displayName;
-    if (bio !== undefined) updateData.bio = bio;
-    if (birthday !== undefined) updateData.birthday = birthday;
-
-    const user = await prisma.user.update({
-      where: { id: req.userId },
-      data: updateData,
-      select: USER_SELECT,
-    });
-
-    res.json(user);
-  } catch (error) {
-    res.status(500).json({ error: 'Ошибка сервера' });
-  }
-});
-
-// Поиск сообщений
+// Поиск сообщений — MUST be before /:id to avoid being shadowed
 router.get('/messages/search', async (req: AuthRequest, res) => {
   try {
     const { q, chatId } = req.query;
@@ -319,6 +108,254 @@ router.get('/messages/search', async (req: AuthRequest, res) => {
     res.json(filtered);
   } catch (error) {
     console.error('Search messages error:', error);
+    res.status(500).json({ error: 'Ошибка сервера' });
+  }
+});
+
+// Профиль пользователя
+router.get('/:id', async (req: AuthRequest, res) => {
+  try {
+    const userId = String(req.params.id);
+
+    // Try cache first
+    const cached = userCache.get(userId);
+    if (cached) {
+      // Still check block status (not cached — changes rarely, but must be fresh)
+      const blocked = await prisma.blockedUser.findFirst({
+        where: { userId, blockedUserId: req.userId! },
+      });
+      if (blocked) {
+        res.json({ ...cached, avatar: null, isOnline: false, lastSeen: new Date('2020-01-01') });
+      } else {
+        res.json(cached);
+      }
+      return;
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: USER_SELECT,
+    });
+
+    if (!user) {
+      res.status(404).json({ error: 'Пользователь не найден' });
+      return;
+    }
+
+    // Cache for next time
+    userCache.set(userId, user);
+
+    // Check if current user is blocked by the requested user
+    const blocked = await prisma.blockedUser.findFirst({
+      where: {
+        userId,
+        blockedUserId: req.userId!,
+      },
+    });
+
+    if (blocked) {
+      res.json({
+        ...user,
+        avatar: null,
+        isOnline: false,
+        lastSeen: new Date('2020-01-01'),
+      });
+      return;
+    }
+
+    res.json(user);
+  } catch (error) {
+    res.status(500).json({ error: 'Ошибка сервера' });
+  }
+});
+
+// Загрузить аватар
+router.post('/avatar', uploadUserAvatar.single('avatar'), encryptUploadedFile, async (req: AuthRequest, res) => {
+  try {
+    if (!req.file) {
+      res.status(400).json({ error: 'Файл не загружен' });
+      return;
+    }
+
+    // Delete old avatar file if exists
+    const currentUser = await prisma.user.findUnique({ where: { id: req.userId }, select: { avatar: true } });
+    if (currentUser?.avatar) deleteUploadedFile(currentUser.avatar);
+
+    // Optimize avatar image
+    let avatarUrl = `/uploads/avatars/${req.file.filename}`;
+    if (isImageFile(req.file.path)) {
+      const optimized = await optimizeImage(req.file.path, { isAvatar: true, generateThumbnail: false });
+      if (optimized.optimizedPath !== req.file.path) {
+        const optimizedFilename = path.basename(optimized.optimizedPath);
+        avatarUrl = `/uploads/avatars/${optimizedFilename}`;
+      }
+    }
+
+    const user = await prisma.user.update({
+      where: { id: req.userId },
+      data: { avatar: avatarUrl },
+      select: USER_SELECT,
+    });
+
+    if (req.userId) userCache.invalidate(req.userId);
+    res.json(user);
+  } catch (error) {
+    console.error('Avatar upload error:', error);
+    res.status(500).json({ error: 'Ошибка загрузки аватара' });
+  }
+});
+
+// Загрузить баннер
+router.post('/banner', uploadUserAvatar.single('banner'), encryptUploadedFile, async (req: AuthRequest, res) => {
+  try {
+    if (!req.file) {
+      res.status(400).json({ error: 'Файл не загружен' });
+      return;
+    }
+
+    // Delete old banner file if exists
+    const currentUser = await prisma.user.findUnique({ where: { id: req.userId }, select: { banner: true } });
+    if (currentUser?.banner) deleteUploadedFile(currentUser.banner);
+
+    const bannerUrl = `/uploads/avatars/${req.file.filename}`;
+
+    const user = await prisma.user.update({
+      where: { id: req.userId },
+      data: { banner: bannerUrl, bannerColor: null },
+      select: USER_SELECT,
+    });
+
+    if (req.userId) userCache.invalidate(req.userId);
+    res.json(user);
+  } catch (error) {
+    res.status(500).json({ error: 'Ошибка загрузки баннера' });
+  }
+});
+
+// Установить цветной баннер
+router.post('/banner/color', async (req: AuthRequest, res) => {
+  try {
+    const { color } = req.body;
+
+    if (!color || typeof color !== 'string' || !/^#[0-9A-Fa-f]{6}$/.test(color)) {
+      res.status(400).json({ error: 'Некорректный цвет (формат: #RRGGBB)' });
+      return;
+    }
+
+    // Delete old banner file if exists
+    const currentUser = await prisma.user.findUnique({ where: { id: req.userId }, select: { banner: true } });
+    if (currentUser?.banner) deleteUploadedFile(currentUser.banner);
+
+    const user = await prisma.user.update({
+      where: { id: req.userId },
+      data: { banner: null, bannerColor: color },
+      select: USER_SELECT,
+    });
+
+    if (req.userId) userCache.invalidate(req.userId);
+    res.json(user);
+  } catch (error) {
+    res.status(500).json({ error: 'Ошибка установки цвета баннера' });
+  }
+});
+
+// Удалить баннер
+router.delete('/banner', async (req: AuthRequest, res) => {
+  try {
+    // Delete file from disk
+    const currentUser = await prisma.user.findUnique({ where: { id: req.userId }, select: { banner: true } });
+    if (currentUser?.banner) deleteUploadedFile(currentUser.banner);
+
+    const user = await prisma.user.update({
+      where: { id: req.userId },
+      data: { banner: null, bannerColor: null },
+      select: USER_SELECT,
+    });
+    if (req.userId) userCache.invalidate(req.userId);
+    res.json(user);
+  } catch (error) {
+    res.status(500).json({ error: 'Ошибка удаления баннера' });
+  }
+});
+
+// Установить украшение аватара
+router.post('/avatar/decoration', async (req: AuthRequest, res) => {
+  try {
+    const { decoration } = req.body;
+
+    const validDecorations = ['none', 'headphones', 'roses', 'crown', 'halo', 'fire', 'sparkles', 'hearts', 'stars'];
+
+    if (!decoration || !validDecorations.includes(decoration)) {
+      res.status(400).json({ error: 'Некорректное украшение' });
+      return;
+    }
+
+    const user = await prisma.user.update({
+      where: { id: req.userId },
+      data: { avatarDecoration: decoration === 'none' ? null : decoration },
+      select: USER_SELECT,
+    });
+
+    if (req.userId) userCache.invalidate(req.userId);
+    res.json(user);
+  } catch (error) {
+    res.status(500).json({ error: 'Ошибка установки украшения' });
+  }
+});
+
+// Удалить аватар
+router.delete('/avatar', async (req: AuthRequest, res) => {
+  try {
+    // Delete file from disk
+    const currentUser = await prisma.user.findUnique({ where: { id: req.userId }, select: { avatar: true } });
+    if (currentUser?.avatar) deleteUploadedFile(currentUser.avatar);
+
+    const user = await prisma.user.update({
+      where: { id: req.userId },
+      data: { avatar: null },
+      select: USER_SELECT,
+    });
+    if (req.userId) userCache.invalidate(req.userId);
+    res.json(user);
+  } catch (error) {
+    res.status(500).json({ error: 'Ошибка удаления аватара' });
+  }
+});
+
+// Обновить профиль (username НЕ меняется!)
+router.put('/profile', async (req: AuthRequest, res) => {
+  try {
+    const { displayName, bio, birthday } = req.body;
+
+    // Validate field lengths
+    if (displayName !== undefined && (typeof displayName !== 'string' || displayName.length === 0 || displayName.length > 50)) {
+      res.status(400).json({ error: 'Имя должно быть от 1 до 50 символов' });
+      return;
+    }
+    if (bio !== undefined && bio !== null && (typeof bio !== 'string' || bio.length > 500)) {
+      res.status(400).json({ error: 'Био должно быть не длиннее 500 символов' });
+      return;
+    }
+    if (birthday !== undefined && birthday !== null) {
+      if (typeof birthday !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(birthday) || isNaN(Date.parse(birthday))) {
+        res.status(400).json({ error: 'Некорректный формат даты рождения (YYYY-MM-DD)' });
+        return;
+      }
+    }
+
+    const updateData: Record<string, string | null> = {};
+    if (displayName !== undefined) updateData.displayName = displayName;
+    if (bio !== undefined) updateData.bio = bio;
+    if (birthday !== undefined) updateData.birthday = birthday;
+
+    const user = await prisma.user.update({
+      where: { id: req.userId },
+      data: updateData,
+      select: USER_SELECT,
+    });
+
+    res.json(user);
+  } catch (error) {
     res.status(500).json({ error: 'Ошибка сервера' });
   }
 });

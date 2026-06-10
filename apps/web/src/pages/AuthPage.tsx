@@ -110,12 +110,13 @@ export default function AuthPage() {
           </div>
 
           {/* Форма */}
-          <form onSubmit={handleSubmit} className="space-y-4" autoComplete="off">
+          <form onSubmit={handleSubmit} className="space-y-4" autoComplete="off" aria-label={isLogin ? t('login') : t('register')}>
             <div>
-              <label className="block text-sm font-medium text-zinc-400 mb-1.5">
+              <label htmlFor="auth-username" className="block text-sm font-medium text-zinc-400 mb-1.5">
                 Username {!isLogin && <span className="text-zinc-600">{t('latinOnly')}</span>}
               </label>
               <input
+                id="auth-username"
                 type="text"
                 value={username}
                 onChange={(e) => setUsername(e.target.value.replace(/[^a-zA-Z0-9_]/g, ''))}
@@ -124,7 +125,10 @@ export default function AuthPage() {
                 required
                 autoFocus
                 autoComplete="off"
+                aria-required="true"
+                aria-describedby="username-hint"
               />
+              {!isLogin && <p id="username-hint" className="text-xs text-zinc-600 mt-1">{t('latinOnly')}</p>}
             </div>
 
             <AnimatePresence>
@@ -150,9 +154,10 @@ export default function AuthPage() {
             </AnimatePresence>
 
             <div>
-              <label className="block text-sm font-medium text-zinc-400 mb-1.5">{t('password')}</label>
+              <label htmlFor="auth-password" className="block text-sm font-medium text-zinc-400 mb-1.5">{t('password')}</label>
               <div className="relative">
                 <input
+                  id="auth-password"
                   type={showPassword ? 'text' : 'password'}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
@@ -161,11 +166,13 @@ export default function AuthPage() {
                   required
                   autoComplete={isLogin ? 'current-password' : 'new-password'}
                   minLength={6}
+                  aria-required="true"
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
                   className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300 transition-colors"
+                  aria-label={showPassword ? 'Скрыть пароль' : 'Показать пароль'}
                 >
                   {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
                 </button>
@@ -198,6 +205,8 @@ export default function AuthPage() {
               disabled={isSubmitting}
               type="submit"
               className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-vortex-500 to-purple-600 text-white font-medium shadow-lg shadow-vortex-500/25 hover:shadow-vortex-500/40 transition-all duration-200 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+              aria-label={isLogin ? t('loginBtn') : t('createAccount')}
+              aria-busy={isSubmitting}
             >
               {isSubmitting ? (
                 <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />

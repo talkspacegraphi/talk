@@ -1,5 +1,5 @@
-@import "tailwindcss";
 @import url('https://fonts.googleapis.com/css2?family=Nunito:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Merriweather:wght@400;700&display=swap');
+@import "tailwindcss";
 
 /* Electron titlebar spacer — высчитывается по высоте titlebar (h-8 = 32px) */
 .electron-titlebar-spacer {
@@ -55,6 +55,51 @@
   background-color: rgba(255, 255, 255, 0.2);
 }
 
+/* === Performance: GPU-ускорение для анимаций === */
+.chat-list-item,
+.message-bubble,
+.modal-anim,
+.sheet-anim {
+  will-change: transform;
+  transform: translateZ(0);
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Reduce GPU memory usage for off-screen elements */
+.message-bubble {
+  contain: layout style;
+}
+
+/* Virtual row optimization — browser skips layout/paint for off-screen rows */
+[data-index] {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 64px;
+}
+
+/* Optimize scroll performance */
+.overflow-y-auto,
+.overflow-auto {
+  will-change: scroll-position;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Reduce repaints for animated elements */
+.animate-pulse {
+  will-change: opacity;
+}
+
+.chat-list-item {
+  transition: background-color 150ms ease, transform 80ms ease;
+}
+.chat-list-item:active {
+  transform: translateZ(0) scale(0.98);
+}
+
+/* Скрываем will-change после анимации, чтобы не съедало память */
+.chat-list-item:hover {
+  will-change: auto;
+}
+
 /* Mobile optimizations */
 @media (max-width: 768px) {
   * {
@@ -100,9 +145,6 @@ body {
   -webkit-tap-highlight-color: transparent;
   touch-action: manipulation;
   overscroll-behavior-y: contain;
-  /* Hardware acceleration */
-  transform: translateZ(0);
-  -webkit-transform: translateZ(0);
 }
 
 /* Mobile optimizations */
@@ -115,19 +157,6 @@ body {
   /* Prevent text size adjustment on orientation change */
   html {
     -webkit-text-size-adjust: 100%;
-  }
-
-  /* Hardware acceleration for smooth animations */
-  * {
-    -webkit-transform: translateZ(0);
-    -moz-transform: translateZ(0);
-    -ms-transform: translateZ(0);
-    -o-transform: translateZ(0);
-    transform: translateZ(0);
-    -webkit-backface-visibility: hidden;
-    backface-visibility: hidden;
-    -webkit-perspective: 1000;
-    perspective: 1000;
   }
 
   /* Optimize scrolling */
@@ -144,6 +173,13 @@ body {
       transition-duration: 0.01ms !important;
     }
   }
+}
+
+/* GPU acceleration for animations */
+.gpu-accelerated {
+  will-change: transform, opacity;
+  transform: translateZ(0);
+  backface-visibility: hidden;
 }
 
 @keyframes slideIn {
@@ -403,4 +439,21 @@ body.font-mono {
 /* Serif font (Merriweather) */
 body.font-serif {
   font-family: 'Merriweather', Georgia, serif;
+}
+
+/* Smooth scrolling */
+.scroll-smooth {
+  scroll-behavior: smooth;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Mobile touch optimizations */
+@media (hover: none) and (pointer: coarse) {
+  * {
+    -webkit-tap-highlight-color: transparent;
+  }
+  button, a, [role="button"] {
+    min-height: 44px;
+    min-width: 44px;
+  }
 }

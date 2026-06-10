@@ -38,13 +38,20 @@ export const MESSAGE_INCLUDE = {
   sender: { select: SENDER_SELECT },
   forwardedFrom: { select: SENDER_SELECT },
   replyTo: {
-    include: { sender: { select: { id: true, username: true, displayName: true } } },
+    select: {
+      id: true,
+      content: true,
+      senderId: true,
+      createdAt: true,
+      type: true,
+      sender: { select: { id: true, username: true, displayName: true } },
+    },
   },
-  media: true,
+  media: { select: { id: true, type: true, url: true, filename: true, size: true, duration: true, width: true, height: true, thumbnail: true } },
   reactions: {
-    include: { user: { select: { id: true, username: true, displayName: true } } },
+    select: { id: true, emoji: true, userId: true, user: { select: { id: true, username: true, displayName: true } } },
   },
-  readBy: { select: { userId: true } },
+  readBy: { select: { userId: true }, take: 50 },
 } as const;
 
 // ─── File system helpers ──────────────────────────────────────────────
@@ -84,8 +91,8 @@ export function deleteUploadedFile(urlPath: string): void {
 // ─── Multer configurations ───────────────────────────────────────────
 
 const avatarsDir = path.join(uploadsRoot, 'avatars');
-ensureDir(avatarsDir);
 ensureDir(uploadsRoot);
+ensureDir(avatarsDir);
 
 /** Allowed image extensions for avatars. */
 const ALLOWED_IMAGE_EXTENSIONS = new Set(['.jpg', '.jpeg', '.png', '.gif', '.webp', '.avif']);

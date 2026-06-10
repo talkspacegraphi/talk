@@ -21,6 +21,8 @@ export default function LinkPreview({ preview, isMine }: LinkPreviewProps) {
           <img
             src={`https://img.youtube.com/vi/${preview.youtubeId}/maxresdefault.jpg`}
             alt={preview.title || 'YouTube video'}
+            loading="lazy"
+            decoding="async"
             className="w-full h-full object-cover"
             onError={(e) => {
               // Fallback to hqdefault if maxresdefault doesn't exist
@@ -61,6 +63,8 @@ export default function LinkPreview({ preview, isMine }: LinkPreviewProps) {
           <img
             src={preview.image}
             alt={preview.title || 'Link preview'}
+            loading="lazy"
+            decoding="async"
             className="w-full h-full object-cover"
           />
         </div>

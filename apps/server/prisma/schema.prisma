@@ -3,7 +3,7 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
@@ -39,6 +39,7 @@ model User {
   blockedUsers BlockedUser[] @relation("BlockedUsers")
   blockedBy    BlockedUser[] @relation("BlockedBy")
   sharedLinks SharedLink[]
+  refreshTokens RefreshToken[]
 }
 
 model Chat {
@@ -84,6 +85,10 @@ model Message {
   scheduledAt DateTime?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@index([chatId, createdAt])
+  @@index([chatId, isDeleted])
+  @@index([senderId])
 
   chat    Chat     @relation(fields: [chatId], references: [id], onDelete: Cascade)
   sender  User     @relation(fields: [senderId], references: [id])
@@ -226,4 +231,25 @@ model SharedLink {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([chatId, userId])
+}
+
+model RefreshToken {
+  id        String   @id @default(uuid())
+  userId    String
+  token     String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([token])
+}
+
+model TokenBlacklist {
+  id        String   @id @default(uuid())
+  token     String   @unique
+  expiresAt DateTime
+
+  @@index([token])
 }

@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 import { prisma } from '../db';
 import { AuthRequest } from '../middleware/auth';
 import { USER_SELECT, SENDER_SELECT, uploadGroupAvatar, deleteUploadedFile, encryptUploadedFile } from '../shared';
+import { getOnlineUsers } from '../socket';
 
 const router = Router();
 
@@ -596,9 +597,8 @@ router.delete('/:id', async (req: AuthRequest, res) => {
       // Delete the chat completely (cascade will delete members, messages, etc.)
       await prisma.chat.delete({ where: { id: chatId } });
 
-      const io = (req as any).app.get('io');
-      const socketModule = require('../socket/index');
-      const onlineUsers = socketModule.getOnlineUsers ? socketModule.getOnlineUsers() : null;
+      const io = req.app.get('io') as import('socket.io').Server | undefined;
+      const onlineUsers = getOnlineUsers();
 
       console.log('Deleting chat:', chatId, 'by user:', userId);
       console.log('Other member:', otherMember?.userId);
@@ -635,9 +635,8 @@ router.delete('/:id', async (req: AuthRequest, res) => {
 
       await prisma.chat.delete({ where: { id: chatId } });
 
-      const io = (req as any).app.get('io');
-      const socketModule = require('../socket/index');
-      const onlineUsers = socketModule.getOnlineUsers ? socketModule.getOnlineUsers() : null;
+      const io = req.app.get('io') as import('socket.io').Server | undefined;
+      const onlineUsers = getOnlineUsers();
 
       if (io && onlineUsers) {
         const userSockets = onlineUsers.get(userId);

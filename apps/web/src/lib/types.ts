@@ -87,6 +87,12 @@ export interface Message {
   media: MediaItem[];
   reactions: Reaction[];
   readBy: Array<{ userId: string }>;
+  /** Local-only flag: client-generated ID, ещё не подтверждено сервером. */
+  clientId?: string;
+  /** Local-only flag: сообщение в процессе отправки на сервер. */
+  pending?: boolean;
+  /** Local-only flag: сервер не принял (например, content warning). */
+  failed?: boolean;
 }
 
 export interface Chat {

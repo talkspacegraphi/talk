@@ -1,10 +1,7 @@
-import { useState } from 'react';
-import { createPortal } from 'react-dom';
-
 interface AnimatedEmojiProps {
   emoji: string;
-  message: any;
-  isMine: boolean;
+  message?: any;
+  isMine?: boolean;
 }
 
 export default function AnimatedEmoji({ emoji }: AnimatedEmojiProps) {

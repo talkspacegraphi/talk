@@ -24,9 +24,11 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   login: async (username, password) => {
     try {
       set({ error: null, isLoading: true });
-      const { token, user } = await api.login(username, password);
+      const { token, refreshToken, user } = await api.login(username, password);
       localStorage.setItem('vortex_token', token);
+      localStorage.setItem('vortex_refresh_token', refreshToken);
       api.setToken(token);
+      api.setRefreshToken(refreshToken);
       connectSocket(token);
       set({ token, user, isLoading: false });
     } catch (err: unknown) {
@@ -39,9 +41,11 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   register: async (username, displayName, password, bio) => {
     try {
       set({ error: null, isLoading: true });
-      const { token, user } = await api.register(username, displayName, password, bio);
+      const { token, refreshToken, user } = await api.register(username, displayName, password, bio);
       localStorage.setItem('vortex_token', token);
+      localStorage.setItem('vortex_refresh_token', refreshToken);
       api.setToken(token);
+      api.setRefreshToken(refreshToken);
       connectSocket(token);
       set({ token, user, isLoading: false });
     } catch (err: unknown) {
@@ -52,33 +56,59 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 
   logout: () => {
+    const token = get().token;
+    if (token) {
+      // Notify server to blacklist token (fire and forget)
+      api.logout().catch(() => {});
+    }
     localStorage.removeItem('vortex_token');
+    localStorage.removeItem('vortex_refresh_token');
     api.setToken(null);
+    api.setRefreshToken(null);
     disconnectSocket();
     set({ token: null, user: null });
   },
 
   checkAuth: async () => {
     const token = get().token;
+    const refreshToken = localStorage.getItem('vortex_refresh_token');
+
     if (!token) {
       set({ isLoading: false });
       return;
+    }
+
+    api.setToken(token);
+    if (refreshToken) {
+      api.setRefreshToken(refreshToken);
     }
 
     // Retry up to 3 times in case server is still starting
     let lastError: unknown;
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
-        api.setToken(token);
         const { user } = await api.getMe();
         connectSocket(token);
         set({ user, isLoading: false });
         return;
       } catch (err) {
         lastError = err;
-        // Only retry on network/server errors, not on auth errors (401/403)
         const msg = err instanceof Error ? err.message : '';
-        if (msg.includes('Требуется авторизация') || msg.includes('Недействительный токен')) {
+        // If session expired or token revoked, try refresh
+        if (msg.includes('Сессия истекла') || msg.includes('Token has been revoked') || msg.includes('Недействительный токен')) {
+          // If refresh token exists, try to refresh
+          if (refreshToken) {
+            try {
+              api.setRefreshToken(refreshToken);
+              // The request interceptor will handle the refresh automatically
+              const { user } = await api.getMe();
+              connectSocket(api['token'] || token);
+              set({ token: api['token'] || token, user, isLoading: false });
+              return;
+            } catch {
+              // Refresh failed
+            }
+          }
           break;
         }
         if (attempt < 2) {
@@ -88,6 +118,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     }
     console.warn('checkAuth failed:', lastError);
     localStorage.removeItem('vortex_token');
+    localStorage.removeItem('vortex_refresh_token');
+    api.setToken(null);
+    api.setRefreshToken(null);
     set({ token: null, user: null, isLoading: false });
   },
 

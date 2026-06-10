@@ -6,4 +6,5 @@ electron_1.contextBridge.exposeInMainWorld('electronAPI', {
     windowMinimize: () => electron_1.ipcRenderer.send('window-minimize'),
     windowMaximize: () => electron_1.ipcRenderer.send('window-maximize'),
     windowClose: () => electron_1.ipcRenderer.send('window-close'),
+    trayAction: (action) => electron_1.ipcRenderer.send('tray-action', action),
 });

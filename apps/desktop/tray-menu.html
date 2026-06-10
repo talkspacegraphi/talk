@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body {
+      background: transparent;
+      height: 100%;
+      overflow: hidden;
+    }
+    body {
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      user-select: none;
+      -webkit-app-region: no-drag;
+    }
+    .menu {
+      background: #1e1f22;
+      border-radius: 12px 12px 4px 4px;
+      overflow: hidden;
+      box-shadow:
+        0 16px 48px rgba(0,0,0,0.55),
+        0 0 0 1px rgba(255,255,255,0.05),
+        inset 0 1px 0 rgba(255,255,255,0.04);
+      min-width: 232px;
+      padding: 6px 6px;
+    }
+    .menu-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 12px;
+      margin-bottom: 2px;
+    }
+    .menu-header img {
+      width: 28px;
+      height: 28px;
+      border-radius: 8px;
+      object-fit: cover;
+    }
+    .menu-header-text {
+      display: flex;
+      flex-direction: column;
+      gap: 1px;
+    }
+    .menu-header-title {
+      font-size: 14px;
+      font-weight: 700;
+      color: #f2f3f5;
+      letter-spacing: 0.01em;
+      line-height: 1.2;
+    }
+    .menu-header-sub {
+      font-size: 11px;
+      color: #949ba4;
+      font-weight: 500;
+      line-height: 1.2;
+    }
+    .menu-divider {
+      height: 1px;
+      background: rgba(255,255,255,0.06);
+      margin: 4px 8px;
+    }
+    .menu-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 9px 10px;
+      margin: 1px 0;
+      border-radius: 6px;
+      color: #b5bac1;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background 80ms ease-out, color 80ms ease-out;
+      position: relative;
+    }
+    .menu-item:hover {
+      background: #404249;
+      color: #dbdee1;
+    }
+    .menu-item:active {
+      background: #35373c;
+      color: #dbdee1;
+    }
+    .menu-item.danger {
+      color: #f23f43;
+    }
+    .menu-item.danger:hover {
+      background: #f23f43;
+      color: #fff;
+    }
+    .menu-item.danger:active {
+      background: #da373c;
+      color: #fff;
+    }
+    .menu-item svg {
+      width: 18px;
+      height: 18px;
+      flex-shrink: 0;
+      opacity: 0.75;
+    }
+    .menu-item:hover svg {
+      opacity: 1;
+    }
+    .menu-item .label {
+      flex: 1;
+    }
+    .menu-item .shortcut {
+      font-size: 11px;
+      color: #949ba4;
+      font-weight: 400;
+    }
+    .menu-item:hover .shortcut {
+      color: #b5bac1;
+    }
+  </style>
+</head>
+<body>
+  <div class="menu" id="menu">
+    <div class="menu-header">
+      <img id="appIcon" src="" alt="icon" onerror="this.style.display='none'" />
+      <div class="menu-header-text">
+        <span class="menu-header-title">Talk Messenger</span>
+        <span class="menu-header-sub">Online</span>
+      </div>
+    </div>
+    <div class="menu-divider"></div>
+    <div class="menu-item" data-action="show">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+        <circle cx="12" cy="12" r="3"/>
+      </svg>
+      <span class="label">Показать окно</span>
+      <span class="shortcut">Ctrl+Shift+T</span>
+    </div>
+    <div class="menu-item" data-action="minimize">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="2" y="3" width="20" height="14" rx="2"/>
+        <line x1="8" y1="21" x2="16" y2="21"/>
+        <line x1="12" y1="17" x2="12" y2="21"/>
+      </svg>
+      <span class="label">Свернуть</span>
+    </div>
+    <div class="menu-divider"></div>
+    <div class="menu-item danger" data-action="quit">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+        <polyline points="16 17 21 12 16 7"/>
+        <line x1="21" y1="12" x2="9" y2="12"/>
+      </svg>
+      <span class="label">Выйти из Talk</span>
+    </div>
+  </div>
+  <script>
+    document.querySelectorAll('.menu-item').forEach(function(item) {
+      item.addEventListener('click', function() {
+        var action = item.getAttribute('data-action');
+        if (window.electronAPI) {
+          window.electronAPI.trayAction(action);
+        }
+      });
+    });
+  </script>
+</body>
+</html>

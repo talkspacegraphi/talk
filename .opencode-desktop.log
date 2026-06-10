@@ -1,0 +1,14 @@
+
+> dev:desktop
+> concurrently -k -n server,web,desktop -c "#6366f1","#8b5cf6","#f0abfc" "npm run dev -w apps/server" "npm run dev -w apps/web" "npm run dev -w apps/desktop"
+
+[desktop] ‡ ¢¥àè¨âì ¢ë¯®«­¥­¨¥ ¯ ª¥â­®£® ä ©«  [Y(¤ )/N(­¥â)]? ^C
+
+[server] ^Cï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ë¯®ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½â­®ï¿½ï¿½ ä ©ï¿½ï¿½ [Y(ï¿½ï¿½)/N(ï¿½ï¿½ï¿½)]? 
+[web] ^Cï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ë¯®ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½â­®ï¿½ï¿½ ä ©ï¿½ï¿½ [Y(ï¿½ï¿½)/N(ï¿½ï¿½ï¿½)]? 
+[desktop] ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ë¯®ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½â­®ï¿½ï¿½ ä ©ï¿½ï¿½ [Y(ï¿½ï¿½)/N(ï¿½ï¿½ï¿½)]? ^C
+[desktop] npm run dev -w apps/desktop exited with code 1
+--> Sending SIGTERM to other processes..
+[web] npm run dev -w apps/web exited with code 1
+--> Sending SIGTERM to other processes..
+[server] npm run dev -w apps/server exited with code 1

@@ -24,9 +24,13 @@ if (process.env.ENCRYPTION_KEY) {
 export const config = {
   port: Number(process.env.PORT) || 3001,
   jwtSecret: process.env.JWT_SECRET || 'vortex-dev-fallback-not-for-production',
+  /** Access token expiry */
+  jwtAccessExpiry: '15m' as const,
+  /** Refresh token expiry in days */
+  jwtRefreshExpiryDays: 30,
   corsOrigins: process.env.CORS_ORIGINS
     ? process.env.CORS_ORIGINS.split(',').map(s => s.trim())
-    : ['http://localhost:5173', 'http://localhost:3000'],
+    : ['http://localhost:5173', 'http://127.0.0.1:5173', 'http://localhost:3000'],
   uploadsDir: 'uploads',
   /** Minimum password length */
   minPasswordLength: 8,

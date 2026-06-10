@@ -40,6 +40,21 @@ async function cleanDatabase() {
   const r7 = await prisma.story.deleteMany();
   counts['Story'] = r7.count;
 
+  // 1.1 Token/Session tables
+  const r13 = await prisma.tokenBlacklist.deleteMany();
+  counts['TokenBlacklist'] = r13.count;
+
+  const r14 = await prisma.refreshToken.deleteMany();
+  counts['RefreshToken'] = r14.count;
+
+  // 1.2 Shared links
+  const r15 = await prisma.sharedLink.deleteMany();
+  counts['SharedLink'] = r15.count;
+
+  // 1.3 Blocked users
+  const r16 = await prisma.blockedUser.deleteMany();
+  counts['BlockedUser'] = r16.count;
+
   // 2. Сообщения
   const r8 = await prisma.message.deleteMany();
   counts['Message'] = r8.count;

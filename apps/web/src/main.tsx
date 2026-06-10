@@ -1,20 +1,25 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import App from './App';
 import './index.css';
 
-const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      retry: 1,
-      refetchOnWindowFocus: false,
-    },
-  },
-});
+// Suppress Vite HMR WebSocket errors in Electron
+// (HMR doesn't work in Electron, only polling reload works)
+if (typeof window !== 'undefined' && (window as any).electronAPI) {
+  window.addEventListener('error', (e: ErrorEvent) => {
+    const msg = e.message || '';
+    if (msg.includes('WebSocket closed without opened') || msg.includes('WebSocket handshake')) {
+      e.preventDefault();
+    }
+  });
+  window.addEventListener('unhandledrejection', (e: PromiseRejectionEvent) => {
+    const msg = String(e.reason?.message || e.reason || '');
+    if (msg.includes('WebSocket')) {
+      e.preventDefault();
+    }
+  });
+}
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
-  <QueryClientProvider client={queryClient}>
-    <App />
-  </QueryClientProvider>
+  <App />
 );

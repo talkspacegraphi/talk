@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, lazy, Suspense } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useChatStore } from '../stores/chatStore';
 import { useAuthStore } from '../stores/authStore';
@@ -11,13 +11,18 @@ import type { Message, UserBasic, CallInfo } from '../lib/types';
 import { Send, Check } from 'lucide-react';
 import Sidebar from '../components/Sidebar';
 import ChatView from '../components/ChatView';
-import CallModal from '../components/CallModal';
-import GroupCallModal from '../components/GroupCallModal';
+import UserProfile from '../components/UserProfile';
+
+const CallModal = lazy(() => import('../components/CallModal'));
+const GroupCallModal = lazy(() => import('../components/GroupCallModal'));
 
 export default function ChatPage() {
   const {
     loadChats,
     addMessage,
+    addOptimisticMessage,
+    confirmMessage,
+    failOptimisticMessage,
     updateMessage,
     removeMessage,
     removeMessages,
@@ -66,6 +71,7 @@ export default function ChatPage() {
   const [warningMessage, setWarningMessage] = useState('');
   const [warningWord, setWarningWord] = useState('');
   const [warningTimestamp, setWarningTimestamp] = useState('');
+  const [profileUserId, setProfileUserId] = useState<string | null>(null);
 
   const { t } = useLang();
 
@@ -130,7 +136,12 @@ export default function ChatPage() {
           console.error('Failed to fetch new chat:', e);
         }
       }
-      addMessage(message);
+      // Если у сообщения есть clientId и это наше сообщение — подтверждаем оптимистичное
+      if (message.clientId && message.senderId === user?.id) {
+        confirmMessage(message.clientId, message);
+      } else {
+        addMessage(message);
+      }
       // Play notification sound for messages from others
       if (message.senderId !== user?.id && !isChatMuted(message.chatId)) {
         playNotificationSound();
@@ -259,8 +270,9 @@ export default function ChatPage() {
       setCallOpen(true);
     });
 
-    socket.on('content_warning', (data: { message: string; word: string; timestamp: string }) => {
+    socket.on('content_warning', (data: { message: string; word: string; timestamp: string; clientId?: string }) => {
       console.log('Received content_warning event:', data);
+      if (data.clientId) failOptimisticMessage(data.clientId);
       setWarningMessage(data.message);
       setWarningWord(data.word);
       setWarningTimestamp(data.timestamp);
@@ -318,6 +330,7 @@ export default function ChatPage() {
   };
 
   return (
+    <>
     <motion.div
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
@@ -325,26 +338,28 @@ export default function ChatPage() {
       className="h-full flex flex-col md:flex-row bg-surface overflow-hidden relative"
       style={{ padding: 'env(safe-area-inset-top) 0 0 0', paddingLeft: 'max(env(safe-area-inset-left), 0px)', paddingRight: 'max(env(safe-area-inset-right), 0px)' }}
     >
-      <div className="flex-1 flex relative w-full h-full">
+      <div className="flex-1 flex relative w-full h-full overflow-hidden">
         <Sidebar />
-        <ChatView onStartCall={handleStartCall} onStartGroupCall={handleStartGroupCall} />
+        <ChatView onStartCall={handleStartCall} onStartGroupCall={handleStartGroupCall} profileUserId={profileUserId} onOpenProfile={(id) => setProfileUserId(id)} />
       </div>
-      <CallModal
-        key={callSessionId}
-        isOpen={callOpen}
-        onClose={handleCloseCall}
-        targetUser={callTarget}
-        callType={callType}
-        incoming={incomingCall}
-      />
-      <GroupCallModal
-        key={`gc-${groupCallSessionId}`}
-        isOpen={groupCallOpen}
-        onClose={handleCloseGroupCall}
-        chatId={groupCallChatId}
-        chatName={groupCallChatName}
-        callType={groupCallType}
-      />
+      <Suspense fallback={null}>
+        <CallModal
+          key={callSessionId}
+          isOpen={callOpen}
+          onClose={handleCloseCall}
+          targetUser={callTarget}
+          callType={callType}
+          incoming={incomingCall}
+        />
+        <GroupCallModal
+          key={`gc-${groupCallSessionId}`}
+          isOpen={groupCallOpen}
+          onClose={handleCloseGroupCall}
+          chatId={groupCallChatId}
+          chatName={groupCallChatName}
+          callType={groupCallType}
+        />
+      </Suspense>
 
       {/* Scheduled message delivery notification */}
       <AnimatePresence>
@@ -420,5 +435,20 @@ export default function ChatPage() {
         )}
       </AnimatePresence>
     </motion.div>
+
+    {/* Профиль — вне motion.div чтобы position: fixed работал относительно viewport */}
+    <AnimatePresence>
+      {profileUserId && (
+        <UserProfile
+          key={profileUserId}
+          userId={profileUserId}
+          chatId={useChatStore.getState().activeChat || undefined}
+          onClose={() => setProfileUserId(null)}
+          isSelf={profileUserId === user?.id}
+          onStartCall={handleStartCall}
+        />
+      )}
+    </AnimatePresence>
+    </>
   );
 }

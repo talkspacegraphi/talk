@@ -36,6 +36,8 @@ function AvatarInner({ src, name, size = 'md', className = '', online }: AvatarP
         <img
           src={src}
           alt={name}
+          loading="lazy"
+          decoding="async"
           className={`${sizeClass} rounded-full object-cover`}
         />
       ) : (

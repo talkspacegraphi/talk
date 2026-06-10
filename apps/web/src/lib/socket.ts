@@ -14,17 +14,22 @@ export function connectSocket(token: string): Socket {
   }
 
   const isElectron = typeof window !== 'undefined' && !!(window as any).electronAPI;
-  const socketUrl = import.meta.env.DEV && !isElectron
+  const isDev = import.meta.env.DEV;
+  const socketUrl = isDev && !isElectron
     ? window.location.origin
-    : 'http://localhost:3001';
+    : isElectron
+      ? 'http://localhost:3001'
+      : window.location.origin;
 
   socket = io(socketUrl, {
     auth: { token },
     transports: ['websocket', 'polling'],
-    reconnectionAttempts: 10,
+    reconnectionAttempts: 100,
     reconnectionDelay: 1000,
-    reconnectionDelayMax: 5000,
-    timeout: 10000,
+    reconnectionDelayMax: 10000,
+    timeout: 15000,
+    upgrade: true,
+    rememberUpgrade: true,
   });
 
   socket.on('connect', () => {
@@ -36,7 +41,11 @@ export function connectSocket(token: string): Socket {
   });
 
   socket.on('connect_error', (err) => {
-    if (import.meta.env.DEV) console.error('[Socket] connection error:', err.message);
+    if (import.meta.env.DEV) console.warn('[Socket] connection error:', err.message);
+    // If websocket fails, force polling fallback
+    if (socket && socket.io?.opts?.transports?.[0] === 'websocket') {
+      socket.io.opts.transports = ['polling'];
+    }
   });
 
   return socket;
@@ -48,6 +57,7 @@ export function getSocket(): Socket | null {
 
 export function disconnectSocket() {
   if (socket) {
+    socket.removeAllListeners();
     socket.disconnect();
     socket = null;
   }

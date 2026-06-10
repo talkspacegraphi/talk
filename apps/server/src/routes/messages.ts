@@ -6,6 +6,44 @@ import { SENDER_SELECT, MESSAGE_INCLUDE, uploadFile, deleteUploadedFile, encrypt
 
 const router = Router();
 
+// Mark messages as read (REST fallback — works even if socket isn't connected yet)
+router.post('/read', async (req: AuthRequest, res) => {
+  try {
+    const { chatId, messageIds } = req.body;
+    if (!chatId || !Array.isArray(messageIds) || messageIds.length === 0) {
+      res.status(400).json({ error: 'chatId и messageIds обязательны' });
+      return;
+    }
+    if (messageIds.length > 200) {
+      res.status(400).json({ error: 'Слишком много сообщений (макс. 200)' });
+      return;
+    }
+
+    const member = await prisma.chatMember.findUnique({
+      where: { chatId_userId: { chatId, userId: req.userId! } },
+    });
+    if (!member) {
+      res.status(403).json({ error: 'Нет доступа к этому чату' });
+      return;
+    }
+
+    await prisma.$transaction(
+      messageIds.map((messageId: string) =>
+        prisma.readReceipt.upsert({
+          where: { messageId_userId: { messageId, userId: req.userId! } },
+          create: { messageId, userId: req.userId! },
+          update: {},
+        })
+      )
+    );
+
+    res.json({ ok: true });
+  } catch (error) {
+    console.error('Mark read error:', error);
+    res.status(500).json({ error: 'Ошибка сервера' });
+  }
+});
+
 // Получить сообщения чата
 router.get('/chat/:chatId', async (req: AuthRequest, res) => {
   try {
@@ -26,12 +64,18 @@ router.get('/chat/:chatId', async (req: AuthRequest, res) => {
     if (cursor) createdAtFilter.lt = new Date(cursor as string);
     if (member.clearedAt) createdAtFilter.gt = member.clearedAt;
 
+    // Get hidden message IDs for this user in this chat (single query, cached)
+    const hiddenIds = await prisma.hiddenMessage.findMany({
+      where: { userId: req.userId!, message: { chatId } },
+      select: { messageId: true },
+    });
+    const hiddenSet = new Set(hiddenIds.map(h => h.messageId));
+
     const messages = await prisma.message.findMany({
       where: {
         chatId,
         isDeleted: false,
-        hiddenBy: { none: { userId: req.userId! } },
-        // Scheduled messages: only visible to the sender until delivered
+        id: { notIn: hiddenSet.size > 0 ? Array.from(hiddenSet) : undefined },
         OR: [
           { scheduledAt: null },
           { senderId: req.userId! },
@@ -174,14 +218,14 @@ router.get('/chat/:chatId/shared', async (req: AuthRequest, res) => {
       });
       res.json(messages);
     } else if (type === 'files') {
-      // Files (documents, archives, audio, etc.)
+      // Files (documents, archives, etc.) — exclude image, video, and voice
       const messages = await prisma.message.findMany({
         where: {
           ...baseWhere,
-          media: { some: { type: { notIn: ['image', 'video'] } } },
+          media: { some: { type: { notIn: ['image', 'video', 'voice'] } } },
         },
         include: {
-          media: { where: { type: { notIn: ['image', 'video'] } } },
+          media: { where: { type: { notIn: ['image', 'video', 'voice'] } } },
           sender: { select: SENDER_SELECT },
         },
         orderBy: { createdAt: 'desc' },

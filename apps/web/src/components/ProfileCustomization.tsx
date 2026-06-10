@@ -3,7 +3,6 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { X, Upload, Palette, Sparkles, Loader2 } from 'lucide-react';
 import { api } from '../lib/api';
 import { useAuthStore } from '../stores/authStore';
-import { User } from '../lib/types';
 import AvatarDecoration from './AvatarDecoration';
 
 interface ProfileCustomizationProps {

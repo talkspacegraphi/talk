@@ -198,6 +198,7 @@ export function setupSocket(io: Server) {
       fileSize?: number;
       duration?: number;
       scheduledAt?: string;
+      clientId?: string;
       media?: Array<{ url: string; type: string; filename?: string; size?: number; duration?: number }>;
     }) => {
       try {
@@ -225,6 +226,7 @@ export function setupSocket(io: Server) {
             message: 'Вы не можете отправить это сообщение. Обнаружен запрещённый контент.',
             word: prohibitedWord,
             timestamp: new Date().toISOString(),
+            clientId: data.clientId,
           });
           console.log('Sent content_warning event to socket');
 
@@ -382,6 +384,7 @@ export function setupSocket(io: Server) {
           socket.emit('new_message', {
             ...message,
             readBy: [{ userId }],
+            clientId: data.clientId,
           });
 
           const delay = Math.min(scheduledAt.getTime() - Date.now(), MAX_TIMEOUT);
@@ -485,10 +488,19 @@ export function setupSocket(io: Server) {
           }
         }
 
-        io.to(`chat:${data.chatId}`).emit('new_message', {
+        const messagePayload = {
           ...message,
           readBy: [{ userId }],
+        };
+
+        // Send to sender with clientId (for optimistic confirmation)
+        socket.emit('new_message', {
+          ...messagePayload,
+          clientId: data.clientId,
         });
+
+        // Send to all OTHER members without clientId (so they get addMessage, not confirmMessage)
+        socket.to(`chat:${data.chatId}`).emit('new_message', messagePayload);
       } catch (error) {
         console.error('Send message error:', error);
         socket.emit('error', { message: 'Ошибка отправки сообщения' });
@@ -1251,10 +1263,14 @@ export function setupSocket(io: Server) {
           onlineUsers.delete(userId);
 
           const now = new Date();
-          await prisma.user.update({
-            where: { id: userId },
-            data: { isOnline: false, lastSeen: now },
-          });
+          try {
+            await prisma.user.update({
+              where: { id: userId },
+              data: { isOnline: false, lastSeen: now },
+            });
+          } catch (err) {
+            console.error('Disconnect: failed to update user status:', err);
+          }
 
           // Check who blocked this user
           const blockedBy = await prisma.blockedUser.findMany({

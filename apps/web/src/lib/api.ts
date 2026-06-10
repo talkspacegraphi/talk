@@ -1,23 +1,50 @@
 import type { User, UserBasic, UserPresence, Chat, Message, MediaItem, StoryGroup, FriendRequest, FriendWithId, FriendshipStatus } from './types';
 
-// В Electron загружаем с Vite dev server (5173), но прокси не работает
-// Поэтому используем прямое подключение к бэкенду
 const isElectron = typeof window !== 'undefined' && !!(window as any).electronAPI;
 const API_BASE = import.meta.env.DEV && !isElectron
-  ? '/api'  // В браузере через Vite - используем прокси
-  : 'http://localhost:3001/api';  // В Electron или продакшене - напрямую на бэкенд
-
-console.log('API_BASE:', API_BASE, 'isElectron:', isElectron, 'isDev:', import.meta.env.DEV);
+  ? '/api'
+  : `${window.location.origin}/api`;
 
 class ApiClient {
   private token: string | null = null;
+  private refreshToken: string | null = null;
+  private isRefreshing = false;
+  private refreshPromise: Promise<string> | null = null;
 
   setToken(token: string | null) {
     this.token = token;
   }
 
-  private async request<T>(endpoint: string, options: RequestInit & { timeout?: number } = {}): Promise<T> {
-    const { timeout = 30_000, ...fetchOptions } = options;
+  setRefreshToken(refreshToken: string | null) {
+    this.refreshToken = refreshToken;
+  }
+
+  private async refreshAccessToken(): Promise<string> {
+    if (!this.refreshToken) throw new Error('No refresh token');
+
+    const response = await fetch(`${API_BASE}/auth/refresh`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refreshToken: this.refreshToken }),
+    });
+
+    if (!response.ok) {
+      this.refreshToken = null;
+      throw new Error('Refresh failed');
+    }
+
+    const data = await response.json();
+    this.token = data.token;
+    this.refreshToken = data.refreshToken;
+
+    localStorage.setItem('vortex_token', data.token);
+    localStorage.setItem('vortex_refresh_token', data.refreshToken);
+
+    return data.token;
+  }
+
+  private async request<T>(endpoint: string, options: RequestInit & { timeout?: number; _retry?: boolean } = {}): Promise<T> {
+    const { timeout = 30_000, _retry, ...fetchOptions } = options;
     const controller = new AbortController();
     const timer = timeout > 0 ? setTimeout(() => controller.abort(), timeout) : undefined;
 
@@ -43,34 +70,73 @@ class ApiClient {
     }
     clearTimeout(timer);
 
+    // If 401 (или «недействительный токен» пришёл с 403 от старого middleware),
+    // пробуем обновить access-токен через refresh-токен.
+    const shouldTryRefresh = !_retry && this.refreshToken && (
+      response.status === 401 ||
+      response.status === 403
+    );
+    if (shouldTryRefresh) {
+      // Сначала прочитаем тело ответа, чтобы понять — стоит ли рефрешить
+      const errBody = await response.clone().json().catch(() => ({} as { error?: string }));
+      const errMsg = (errBody?.error || '').toString();
+      const canRecover = response.status === 401
+        || /Недействительный токен|Token has been revoked|Сессия истекла|Invalid token/i.test(errMsg);
+      if (canRecover) {
+        try {
+          if (!this.isRefreshing) {
+            this.isRefreshing = true;
+            this.refreshPromise = this.refreshAccessToken();
+          }
+          await this.refreshPromise;
+          return this.request<T>(endpoint, { ...options, _retry: true });
+        } catch {
+          throw new Error('Сессия истекла. Войдите снова.');
+        } finally {
+          this.isRefreshing = false;
+          this.refreshPromise = null;
+        }
+      }
+    }
+
     if (!response.ok) {
-      const error = await response.json().catch(() => ({ error: '\u041e\u0448\u0438\u0431\u043a\u0430 \u0441\u0435\u0440\u0432\u0435\u0440\u0430' }));
-      throw new Error(error.error || '\u041e\u0448\u0438\u0431\u043a\u0430 \u0437\u0430\u043f\u0440\u043e\u0441\u0430');
+      const error = await response.json().catch(() => ({ error: 'Ошибка сервера' }));
+      throw new Error(error.error || 'Ошибка запроса');
     }
 
     return response.json();
   }
 
-  // \u0410\u0432\u0442\u043e\u0440\u0438\u0437\u0430\u0446\u0438\u044f
+  // ─── Auth ─────────────────────────────────────────────────────────
+
   async login(username: string, password: string) {
-    return this.request<{ token: string; user: User }>('/auth/login', {
+    return this.request<{ token: string; refreshToken: string; user: User }>('/auth/login', {
       method: 'POST',
       body: JSON.stringify({ username, password }),
     });
   }
 
   async register(username: string, displayName: string, password: string, bio?: string) {
-    return this.request<{ token: string; user: User }>('/auth/register', {
+    return this.request<{ token: string; refreshToken: string; user: User }>('/auth/register', {
       method: 'POST',
       body: JSON.stringify({ username, displayName, password, bio }),
     });
+  }
+
+  async logout() {
+    try {
+      await this.request('/auth/logout', { method: 'POST' });
+    } catch {
+      // Ignore logout errors
+    }
   }
 
   async getMe() {
     return this.request<{ user: User }>('/auth/me');
   }
 
-  // \u041f\u043e\u043b\u044c\u0437\u043e\u0432\u0430\u0442\u0435\u043b\u0438
+  // ─── Users ────────────────────────────────────────────────────────
+
   async searchUsers(query: string) {
     return this.request<UserPresence[]>(`/users/search?q=${encodeURIComponent(query)}`);
   }
@@ -154,7 +220,8 @@ class ApiClient {
     return this.request<Message[]>(`/users/messages/search?${params}`);
   }
 
-  // \u0427\u0430\u0442\u044b
+  // ─── Chats ────────────────────────────────────────────────────────
+
   async getChats() {
     return this.request<Chat[]>('/chats');
   }
@@ -173,10 +240,21 @@ class ApiClient {
     });
   }
 
-  // \u0421\u043e\u043e\u0431\u0449\u0435\u043d\u0438\u044f
-  async getMessages(chatId: string, cursor?: string) {
-    const params = cursor ? `?cursor=${cursor}` : '';
-    return this.request<Message[]>(`/messages/chat/${chatId}${params}`);
+  // ─── Messages ─────────────────────────────────────────────────────
+
+  async getMessages(chatId: string, cursor?: string, limit = 50) {
+    const params = new URLSearchParams();
+    if (cursor) params.set('cursor', cursor);
+    if (limit) params.set('limit', String(limit));
+    const qs = params.toString();
+    return this.request<Message[]>(`/messages/chat/${chatId}${qs ? '?' + qs : ''}`);
+  }
+
+  async markMessagesRead(chatId: string, messageIds: string[]) {
+    return this.request<{ ok: boolean }>('/messages/read', {
+      method: 'POST',
+      body: JSON.stringify({ chatId, messageIds }),
+    });
   }
 
   async uploadFile(file: File) {
@@ -195,11 +273,12 @@ class ApiClient {
     });
     clearTimeout(timer);
 
-    if (!response.ok) throw new Error('\u041e\u0448\u0438\u0431\u043a\u0430 \u0437\u0430\u0433\u0440\u0443\u0437\u043a\u0438 \u0444\u0430\u0439\u043b\u0430');
+    if (!response.ok) throw new Error('Ошибка загрузки файла');
     return response.json() as Promise<{ url: string; filename: string; size: number }>;
   }
 
-  // \u0413\u0440\u0443\u043f\u043f\u044b
+  // ─── Groups ───────────────────────────────────────────────────────
+
   async updateGroup(chatId: string, data: { name?: string }) {
     return this.request<Chat>(`/chats/${chatId}`, {
       method: 'PUT',
@@ -223,7 +302,7 @@ class ApiClient {
     });
     clearTimeout(timer);
 
-    if (!response.ok) throw new Error('\u041e\u0448\u0438\u0431\u043a\u0430 \u0437\u0430\u0433\u0440\u0443\u0437\u043a\u0438 \u0430\u0432\u0430\u0442\u0430\u0440\u0430');
+    if (!response.ok) throw new Error('Ошибка загрузки аватара');
     return response.json() as Promise<Chat>;
   }
 
@@ -239,9 +318,7 @@ class ApiClient {
   }
 
   async removeGroupMember(chatId: string, userId: string) {
-    return this.request<Chat>(`/chats/${chatId}/members/${userId}`, {
-      method: 'DELETE',
-    });
+    return this.request<Chat>(`/chats/${chatId}/members/${userId}`, { method: 'DELETE' });
   }
 
   async clearChat(chatId: string) {
@@ -264,12 +341,14 @@ class ApiClient {
     return this.request<Message[]>(`/messages/chat/${chatId}/shared?type=${type}`);
   }
 
-  // ICE серверы для WebRTC
+  // ─── ICE servers ──────────────────────────────────────────────────
+
   async getIceServers() {
     return this.request<{ iceServers: RTCIceServer[] }>('/ice-servers');
   }
 
-  // Stories
+  // ─── Stories ──────────────────────────────────────────────────────
+
   async getStories() {
     return this.request<StoryGroup[]>('/stories');
   }
@@ -293,12 +372,14 @@ class ApiClient {
     return this.request<Array<{ userId: string; username: string; displayName: string; avatar: string | null; viewedAt: string }>>(`/stories/${storyId}/viewers`);
   }
 
-  // Favorites chat
+  // ─── Favorites ────────────────────────────────────────────────────
+
   async getOrCreateFavorites() {
     return this.request<Chat>('/chats/favorites', { method: 'POST' });
   }
 
-  // User settings
+  // ─── Settings ─────────────────────────────────────────────────────
+
   async updateSettings(data: { hideStoryViews?: boolean }) {
     return this.request<User>('/users/settings', {
       method: 'PUT',
@@ -306,7 +387,8 @@ class ApiClient {
     });
   }
 
-  // Friends
+  // ─── Friends ──────────────────────────────────────────────────────
+
   async getFriends() {
     return this.request<FriendWithId[]>('/friends');
   }
@@ -342,7 +424,8 @@ class ApiClient {
     return this.request<{ success: boolean }>(`/friends/${friendshipId}`, { method: 'DELETE' });
   }
 
-  // Block/Unblock users
+  // ─── Block/Unblock ────────────────────────────────────────────────
+
   async blockUser(userId: string) {
     return this.request<{ success: boolean }>('/users/block', {
       method: 'POST',
@@ -365,7 +448,8 @@ class ApiClient {
     return this.request<{ blocked: boolean }>(`/users/blocked/${userId}`);
   }
 
-  // Link previews
+  // ─── Link previews ───────────────────────────────────────────────
+
   async getLinkPreview(url: string) {
     return this.request<{
       url: string;
@@ -381,7 +465,6 @@ class ApiClient {
     });
   }
 
-  // Get shared links with user
   async getUserLinks(userId: string) {
     return this.request<Array<{
       id: string;

@@ -57,6 +57,9 @@ async function getMediaWithCameraFallback(
   wantVideo: boolean,
   preferDeviceId?: string
 ): Promise<{ stream: MediaStream; hasVideo: boolean }> {
+  if (!navigator.mediaDevices?.getUserMedia) {
+    throw new Error('navigator.mediaDevices is not available. Calls require HTTPS or localhost.');
+  }
   if (!wantVideo) {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
     return { stream, hasVideo: false };
@@ -146,6 +149,7 @@ export default function CallModal({ isOpen, onClose, targetUser, callType: initi
   const devicesArrayRef = useRef<MediaDeviceInfo[]>([]);
 
   const remoteStreamRef = useRef<MediaStream | null>(null);
+  const disconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Refresh all devices on call connect
   const refreshAllDevices = useCallback(async () => {
@@ -225,6 +229,7 @@ export default function CallModal({ isOpen, onClose, targetUser, callType: initi
     if (timerRef.current) clearInterval(timerRef.current);
     if (callTimeoutRef.current) clearTimeout(callTimeoutRef.current);
     if (closeTimeoutRef.current) clearTimeout(closeTimeoutRef.current);
+    if (disconnectTimeoutRef.current) { clearTimeout(disconnectTimeoutRef.current); disconnectTimeoutRef.current = null; }
     stopCallRingtone();
     if (localStreamRef.current) {
       localStreamRef.current.getTracks().forEach(track => track.stop());
@@ -343,9 +348,26 @@ export default function CallModal({ isOpen, onClose, targetUser, callType: initi
 
     pc.onconnectionstatechange = () => {
       if (callEndedRef.current) return;
-      if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed') {
+      const state = pc.connectionState;
+      if (state === 'failed') {
         // eslint-disable-next-line @typescript-eslint/no-use-before-define
         endCallSafe();
+      } else if (state === 'disconnected') {
+        // 'disconnected' is transient — give it 5 seconds to recover before ending
+        if (!disconnectTimeoutRef.current) {
+          disconnectTimeoutRef.current = setTimeout(() => {
+            disconnectTimeoutRef.current = null;
+            if (!callEndedRef.current && pc.connectionState === 'disconnected') {
+              endCallSafe();
+            }
+          }, 5000);
+        }
+      } else if (state === 'connected') {
+        // Clear any pending disconnect timeout — connection recovered
+        if (disconnectTimeoutRef.current) {
+          clearTimeout(disconnectTimeoutRef.current);
+          disconnectTimeoutRef.current = null;
+        }
       }
     };
   }, []);

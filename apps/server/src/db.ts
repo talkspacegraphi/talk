@@ -3,6 +3,11 @@ import { encryptText, decryptText, isEncryptionEnabled } from './encrypt';
 
 const basePrisma = new PrismaClient();
 
+// Enable WAL mode and optimize SQLite for better concurrent read performance
+basePrisma.$executeRawUnsafe('PRAGMA journal_mode=WAL').catch(() => {});
+basePrisma.$executeRawUnsafe('PRAGMA synchronous=NORMAL').catch(() => {});
+basePrisma.$executeRawUnsafe('PRAGMA foreign_keys=ON').catch(() => {});
+
 // ─── Prisma extension: transparent message encryption ───────────────
 // Encrypts `content` and `quote` before writing to DB,
 // decrypts them after reading. This way the DB never stores plaintext.

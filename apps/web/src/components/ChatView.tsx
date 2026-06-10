@@ -1,5 +1,6 @@
-import { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo, memo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import {
   Phone,
   Video,
@@ -16,6 +17,7 @@ import {
   Eraser,
   Pin,
   Forward,
+  Reply,
   Bookmark,
   Ban,
   Check,
@@ -32,14 +34,15 @@ import type { UserBasic, Message } from '../lib/types';
 import MessageBubble from './MessageBubble';
 import MessageInput from './MessageInput';
 import TypingIndicator from './TypingIndicator';
-import UserProfile from './UserProfile';
+
+import Tooltip from './Tooltip';
 import GroupSettings from './GroupSettings';
 import ForwardModal from './ForwardModal';
 import ConfirmModal from './ConfirmModal';
 import Avatar from './Avatar';
 import { useThemeStore } from '../stores/themeStore';
 
-export default function ChatView({ onStartCall, onStartGroupCall }: { onStartCall?: (targetUser: UserBasic, type: 'voice' | 'video') => void; onStartGroupCall?: (chatId: string, chatName: string, type: 'voice' | 'video') => void }) {
+export default function ChatView({ onStartCall, onStartGroupCall, profileUserId, onOpenProfile }: { onStartCall?: (targetUser: UserBasic, type: 'voice' | 'video') => void; onStartGroupCall?: (chatId: string, chatName: string, type: 'voice' | 'video') => void; profileUserId?: string | null; onOpenProfile?: (userId: string) => void }) {
   const { user } = useAuthStore();
   const { t, lang } = useLang();
   const { chatTheme, setChatBackground, getChatBackground } = useThemeStore();
@@ -50,14 +53,19 @@ export default function ChatView({ onStartCall, onStartGroupCall }: { onStartCal
     typingUsers,
     pinnedMessages,
     isLoadingMessages,
+    isLoadingMore,
+    hasMore,
     setActiveChat,
+    setReplyTo,
+    loadMoreMessages,
+    saveScrollPosition,
+    scrollPositions,
   } = useChatStore();
 
   const [showTopMenu, setShowTopMenu] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
   const [searchText, setSearchText] = useState('');
   const [searchResults, setSearchResults] = useState<Message[]>([]);
-  const [profileUserId, setProfileUserId] = useState<string | null>(null);
   const [showGroupSettings, setShowGroupSettings] = useState(false);
   const [showScrollDown, setShowScrollDown] = useState(false);
   const [muted, setMuted] = useState(false);
@@ -67,7 +75,6 @@ export default function ChatView({ onStartCall, onStartGroupCall }: { onStartCal
   const [showForwardModal, setShowForwardModal] = useState(false);
   const [showDeleteMenu, setShowDeleteMenu] = useState(false);
   const [confirmAction, setConfirmAction] = useState<{ message: string; action: () => void } | null>(null);
-  const [scrollReady, setScrollReady] = useState(false);
   const [activeGroupCallParticipants, setActiveGroupCallParticipants] = useState<string[]>([]);
   const [isBlocked, setIsBlocked] = useState(false);
   const [blockedByOther, setBlockedByOther] = useState(false);
@@ -81,14 +88,19 @@ export default function ChatView({ onStartCall, onStartGroupCall }: { onStartCal
   const [backgroundBlur, setBackgroundBlur] = useState(0);
   const bgFileInputRef = useRef<HTMLInputElement>(null);
 
-  const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const topMenuRef = useRef<HTMLDivElement>(null);
   const deleteMenuRef = useRef<HTMLDivElement>(null);
   const chatViewRef = useRef<HTMLDivElement>(null);
 
-  const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
+  const [isMobile, setIsMobile] = useState(() => typeof window !== 'undefined' && window.innerWidth < 768);
+
+  useEffect(() => {
+    const check = () => setIsMobile(window.innerWidth < 768);
+    window.addEventListener('resize', check);
+    return () => window.removeEventListener('resize', check);
+  }, []);
 
   // Swipe to close on mobile
   const [touchStart, setTouchStart] = useState<number | null>(null);
@@ -104,12 +116,19 @@ export default function ChatView({ onStartCall, onStartGroupCall }: { onStartCal
     const header = target.closest('.chat-header');
     if (!header) return;
 
+    // Don't interfere with message swipe-to-reply
+    if ((e.target as HTMLElement).closest('[data-swiping]')) return;
+
     setTouchEnd(null);
     setTouchStart(e.targetTouches[0].clientX);
   };
 
   const onTouchMove = (e: React.TouchEvent) => {
     if (!isMobile || !touchStart) return;
+    // Don't interfere with message swipe-to-reply
+    const target = e.target as HTMLElement;
+    if (target.closest('[data-swiping]')) return;
+
     const currentTouch = e.targetTouches[0].clientX;
     setTouchEnd(currentTouch);
     const distance = currentTouch - touchStart;
@@ -162,7 +181,6 @@ export default function ChatView({ onStartCall, onStartGroupCall }: { onStartCal
   useEffect(() => {
     if (activeChat) {
       setMuted(isChatMuted(activeChat));
-      setScrollReady(false);
       setActiveGroupCallParticipants([]);
       setIsBlocked(false);
       setBlockedByOther(false);
@@ -287,36 +305,72 @@ export default function ChatView({ onStartCall, onStartGroupCall }: { onStartCal
     };
   }, [showDeleteMenu]);
 
-  // Прокрутка вниз
+  // Прокрутка вниз — через прямой DOM scroll (надёжнее virtualizer.scrollToIndex)
   const scrollToBottom = useCallback((smooth = true) => {
-    messagesEndRef.current?.scrollIntoView({ behavior: smooth ? 'smooth' : 'instant', block: 'end' });
+    const container = messagesContainerRef.current;
+    if (container) {
+      const scrollEl = container.querySelector('[data-scroll-area]') || container;
+      if (smooth) {
+        scrollEl.scrollTo({ top: scrollEl.scrollHeight, behavior: 'smooth' });
+      } else {
+        scrollEl.scrollTop = scrollEl.scrollHeight;
+      }
+    }
   }, []);
 
-  // Первичная прокрутка при открытии чата или после загрузки (layout effect — до отрисовки)
+  // Первичная прокрутка при открытии чата — useLayoutEffect, до paint
   useLayoutEffect(() => {
-    if (!isLoadingMessages && messagesContainerRef.current) {
-      messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight;
-      setScrollReady(true);
-    }
-  }, [activeChat, isLoadingMessages]);
-
-  // Scroll on new message arrivals
-  useEffect(() => {
-    if (chatMessages.length > 0) {
-      const lastMsg = chatMessages[chatMessages.length - 1];
-      if (lastMsg.senderId === user?.id) {
-        setTimeout(() => scrollToBottom(true), 50);
-      } else {
-        // Если пользователь внизу — прокрутить
-        const container = messagesContainerRef.current;
-        if (container) {
-          const isNearBottom =
-            container.scrollHeight - container.scrollTop - container.clientHeight < 250;
-          if (isNearBottom) setTimeout(() => scrollToBottom(true), 50);
+    if (activeChat && chatMessages.length > 0) {
+      const container = messagesContainerRef.current;
+      if (container) {
+        const scrollEl = container.querySelector('[data-scroll-area]') || container;
+        const savedPos = scrollPositions[activeChat];
+        if (savedPos !== undefined && savedPos > 0) {
+          scrollEl.scrollTop = savedPos;
+        } else {
+          scrollEl.scrollTop = scrollEl.scrollHeight;
         }
       }
     }
-  }, [chatMessages.length, user?.id, scrollToBottom]);
+  }, [activeChat, isLoadingMessages, chatMessages.length]);
+
+  // Слушаем кастомное событие «прокрутить вниз» (отправляется из MessageInput при send)
+  useEffect(() => {
+    const handler = () => {
+      const container = messagesContainerRef.current;
+      if (!container) return;
+      const scrollEl = container.querySelector('[data-scroll-area]') || container;
+      // Immediate
+      scrollEl.scrollTop = scrollEl.scrollHeight;
+      // Retry — virtualizer might need a frame to render new item
+      requestAnimationFrame(() => {
+        scrollEl.scrollTop = scrollEl.scrollHeight;
+      });
+      setTimeout(() => {
+        scrollEl.scrollTop = scrollEl.scrollHeight;
+      }, 100);
+    };
+    window.addEventListener('vortex:scroll-to-bottom', handler);
+    return () => window.removeEventListener('vortex:scroll-to-bottom', handler);
+  }, []);
+
+  // Scroll on new message arrivals
+  useEffect(() => {
+    if (chatMessages.length === 0) return;
+    const container = messagesContainerRef.current;
+    if (!container) return;
+
+    const lastMsg = chatMessages[chatMessages.length - 1];
+    const scrollEl = container.querySelector('[data-scroll-area]') || container;
+    const distanceFromBottom = scrollEl.scrollHeight - scrollEl.scrollTop - scrollEl.clientHeight;
+
+    if (lastMsg.senderId === user?.id || distanceFromBottom < 400) {
+      // My message or near bottom — scroll down
+      requestAnimationFrame(() => {
+        scrollEl.scrollTop = scrollEl.scrollHeight;
+      });
+    }
+  }, [chatMessages.length, user?.id]);
 
   // Read receipts — debounced via ref to avoid excessive emits
   const sentReadIdsRef = useRef<Set<string>>(new Set());
@@ -334,33 +388,33 @@ export default function ChatView({ onStartCall, onStartGroupCall }: { onStartCal
     if (unread.length > 0) {
       const ids = unread.map((m) => m.id);
       ids.forEach((id) => sentReadIdsRef.current.add(id));
+      // Try socket first, fall back to REST API
       const socket = getSocket();
-      if (socket) {
+      if (socket?.connected) {
         socket.emit('read_messages', {
           chatId: activeChat,
           messageIds: ids,
         });
+      } else {
+        // Socket not connected yet (e.g. page just loaded) — use REST API
+        api.markMessagesRead(activeChat, ids).catch(() => {});
       }
       // Update local store immediately for current user
       useChatStore.getState().markRead(activeChat, user.id, ids);
     }
   }, [chatMessages.length, activeChat, user?.id]);
 
-  // Scroll detection
-  const handleScroll = () => {
-    const container = messagesContainerRef.current;
-    if (!container) return;
-    const isNearBottom =
-      container.scrollHeight - container.scrollTop - container.clientHeight < 200;
+  // Scroll detection — теперь вызывается из VirtualizedMessages на внутреннем контейнере
+  const handleMessagesScroll = useCallback((isNearBottom: boolean) => {
     setShowScrollDown(!isNearBottom);
-  };
+  }, []);
 
-  const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+  const handleMouseMove = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     if (!chatViewRef.current) return;
     const { left, top } = chatViewRef.current.getBoundingClientRect();
     chatViewRef.current.style.setProperty('--mouse-x', `${e.clientX - left}px`);
     chatViewRef.current.style.setProperty('--mouse-y', `${e.clientY - top}px`);
-  };
+  }, []);
 
   // Поиск сообщений
   useEffect(() => {
@@ -379,11 +433,65 @@ export default function ChatView({ onStartCall, onStartGroupCall }: { onStartCal
     return () => clearTimeout(timer);
   }, [searchText, activeChat]);
 
-  const openSearch = () => {
+  // Ctrl+F / Cmd+F for search
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
+        e.preventDefault();
+        setShowSearch(true);
+        setTimeout(() => searchInputRef.current?.focus(), 100);
+      }
+      if (e.key === 'Escape' && showSearch) {
+        setShowSearch(false);
+        setSearchText('');
+        setSearchResults([]);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [showSearch]);
+
+  const openSearch = useCallback(() => {
     setShowSearch(true);
     setShowTopMenu(false);
     setTimeout(() => searchInputRef.current?.focus(), 100);
-  };
+  }, []);
+
+  const handleToggleSelect = useCallback((msgId: string) => {
+    setSelectedMessages(prev => {
+      const newMap = new Set(prev);
+      if (newMap.has(msgId)) {
+        newMap.delete(msgId);
+        if (newMap.size === 0) setSelectionMode(false);
+      } else {
+        newMap.add(msgId);
+      }
+      return newMap;
+    });
+  }, []);
+
+  const handleStartSelection = useCallback((msgId: string) => {
+    setSelectionMode(true);
+    setSelectedMessages(new Set([msgId]));
+  }, []);
+
+  const handleViewProfile = useCallback((userId: string) => {
+    onOpenProfile?.(userId);
+  }, []);
+
+  const handleUnblock = useCallback(async () => {
+    if (!otherMember) return;
+    try {
+      await api.unblockUser(otherMember.user.id);
+      setIsBlocked(false);
+      const socket = getSocket();
+      if (socket) socket.emit('user_unblocked', { userId: otherMember.user.id });
+    } catch (e) { console.error(e); }
+  }, [otherMember]);
+
+  const handleLoadMore = useCallback(() => {
+    if (activeChat) loadMoreMessages(activeChat);
+  }, [activeChat, loadMoreMessages]);
 
   if (!activeChat || !chat) {
     return (
@@ -391,7 +499,7 @@ export default function ChatView({ onStartCall, onStartGroupCall }: { onStartCal
         initial={false}
         animate={isMobile ? { x: '100%', opacity: 0 } : { x: '0%', opacity: 1 }}
         transition={{ type: 'spring', stiffness: 400, damping: 35, mass: 0.8 }}
-        className={`flex-1 flex items-center justify-center bg-surface-secondary/50 rounded-none md:rounded-[2rem] overflow-hidden border-0 md:border md:border-white/5 shadow-none md:shadow-2xl relative backdrop-blur-3xl group ${isMobile ? 'absolute inset-0' : 'relative'} z-10`}
+        className={`flex-1 min-w-0 flex items-center justify-center bg-surface-secondary/50 rounded-none md:rounded-[2rem] overflow-hidden border-0 md:border md:border-white/5 shadow-none md:shadow-2xl relative backdrop-blur-3xl group ${isMobile ? 'absolute inset-0' : 'relative'} z-10`}
         style={isMobile ? { pointerEvents: 'none' } : undefined}
       >
         {/* Slowly pulsing purple background as requested */}
@@ -440,20 +548,15 @@ export default function ChatView({ onStartCall, onStartGroupCall }: { onStartCal
     .slice(0, 2)
     .toUpperCase();
 
-  const handleToggleSelect = (msgId: string) => {
-    const newMap = new Set(selectedMessages);
-    if (newMap.has(msgId)) {
-      newMap.delete(msgId);
-      if (newMap.size === 0) setSelectionMode(false);
-    } else {
-      newMap.add(msgId);
+  const handleReplySelected = () => {
+    if (selectedMessages.size !== 1) return;
+    const msgId = Array.from(selectedMessages)[0];
+    const msg = chatMessages.find(m => m.id === msgId);
+    if (msg) {
+      setReplyTo(msg);
+      setSelectionMode(false);
+      setSelectedMessages(new Set());
     }
-    setSelectedMessages(newMap);
-  };
-
-  const handleStartSelection = (msgId: string) => {
-    setSelectionMode(true);
-    setSelectedMessages(new Set([msgId]));
   };
 
   const handleForward = async (targetChatId: string) => {
@@ -605,9 +708,12 @@ export default function ChatView({ onStartCall, onStartGroupCall }: { onStartCal
         x: activeChat ? swipeOffset : '100%',
         opacity: activeChat ? Math.max(0.5, 1 - swipeOffset / 150) : 0
       } : { x: '0%', opacity: 1 }}
-      transition={swipeOffset > 0 ? { type: 'tween', duration: 0 } : { type: 'spring', stiffness: 400, damping: 35, mass: 0.8 }}
-      className={`flex-1 flex flex-col h-full rounded-none md:rounded-3xl overflow-hidden shadow-none md:shadow-[0_0_120px_-20px_rgba(0,0,0,0.5)] border-0 md:border md:border-border/50 relative ${activeChat ? `chat-theme-${chatTheme}` : 'bg-surface'} transition-colors duration-500 ${isMobile ? 'absolute inset-0' : 'relative'} z-30 bg-surface`}
-      style={isMobile && !activeChat ? { pointerEvents: 'none' } : undefined}
+      transition={swipeOffset > 0
+        ? { type: 'tween', duration: 0 }
+        : { type: 'tween', duration: 0.15, ease: [0.25, 1, 0.5, 1] }
+      }
+      style={{ willChange: 'transform, opacity' }}
+      className={`flex-1 min-w-0 flex flex-col h-full rounded-none md:rounded-3xl overflow-hidden shadow-none md:shadow-[0_0_120px_-20px_rgba(0,0,0,0.5)] border-0 md:border md:border-border/50 relative ${activeChat ? `chat-theme-${chatTheme}` : 'bg-surface'} transition-colors duration-500 ${isMobile ? 'absolute inset-0' : 'relative'} z-30 bg-surface`}
     >
       {/* Шапка чата */}
       {selectionMode ? (
@@ -615,13 +721,24 @@ export default function ChatView({ onStartCall, onStartGroupCall }: { onStartCal
           initial={{ y: -20, opacity: 0 }}
           animate={{ y: 0, opacity: 1 }}
           transition={{ type: 'spring', stiffness: 400, damping: 25 }}
-          className="h-[76px] flex items-center justify-between px-6 border-b border-border/40 bg-surface-secondary/80 backdrop-blur-xl z-20 flex-shrink-0"
+          className="h-[68px] md:h-[76px] flex items-center justify-between px-4 md:px-6 border-b border-border/40 bg-surface-secondary/80 backdrop-blur-xl z-20 flex-shrink-0"
         >
           <div className="flex items-center gap-4 text-white">
             <button onClick={() => { setSelectionMode(false); setSelectedMessages(new Set()); }} className="p-2 -ml-2 rounded-full hover:bg-white/10 transition">
               <X size={20} className="text-zinc-300" />
             </button>
-            <span className="font-medium text-[15px]">{selectedMessages.size} {t('selected') || 'выбрано'}</span>
+            <AnimatePresence mode="popLayout">
+              <motion.span
+                key={selectedMessages.size}
+                initial={{ y: -10, opacity: 0, scale: 0.8 }}
+                animate={{ y: 0, opacity: 1, scale: 1 }}
+                exit={{ y: 10, opacity: 0, scale: 0.8 }}
+                transition={{ type: 'spring', stiffness: 500, damping: 30 }}
+                className="font-medium text-[15px] tabular-nums"
+              >
+                {selectedMessages.size} {t('selected') || 'выбрано'}
+              </motion.span>
+            </AnimatePresence>
           </div>
           <div className="flex items-center gap-3">
             {/* Кнопка удаления с выпадающим меню */}
@@ -679,23 +796,24 @@ export default function ChatView({ onStartCall, onStartGroupCall }: { onStartCal
           transition={{ type: 'spring', stiffness: 400, damping: 25 }}
           className="chat-header h-[68px] md:h-[76px] flex items-center justify-between px-4 md:px-6 border-b border-border/40 bg-surface-secondary/80 backdrop-blur-xl z-20 flex-shrink-0"
         >
-          {/* Back button for mobile */}
-          <motion.button
-            initial={{ opacity: 0, x: -10 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: -10 }}
-            transition={{ duration: 0.2 }}
-            onClick={() => setActiveChat(null)}
-            className="md:hidden p-2.5 rounded-xl hover:bg-surface-hover active:scale-95 transition-all text-zinc-400 hover:text-white mr-2"
-            title="Назад"
-          >
-            <ArrowLeft size={22} strokeWidth={2.5} />
-          </motion.button>
+          {/* Back button */}
+          <Tooltip text={t('back') || 'Назад'} shortcut="Esc">
+            <motion.button
+              initial={{ opacity: 0, x: -10 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -10 }}
+              transition={{ duration: 0.2 }}
+              onClick={() => setActiveChat(null)}
+              className="p-2.5 rounded-xl hover:bg-surface-hover active:scale-95 transition-all text-zinc-400 hover:text-white mr-2"
+            >
+              <ArrowLeft size={22} strokeWidth={2.5} />
+            </motion.button>
+          </Tooltip>
           <button
             className="flex items-center gap-3 min-w-0 flex-1 group transition-all overflow-hidden"
             onClick={() => {
               if (chat.type === 'personal' && otherMember) {
-                setProfileUserId(otherMember.user.id);
+                onOpenProfile?.(otherMember.user.id);
               } else if (chat.type === 'group') {
                 setShowGroupSettings(true);
               }
@@ -773,49 +891,60 @@ export default function ChatView({ onStartCall, onStartGroupCall }: { onStartCal
               )}
             </AnimatePresence>
 
-            <button
-              onClick={() => {
-                if (showSearch) {
-                  setShowSearch(false);
-                  setSearchText('');
-                  setSearchResults([]);
-                } else {
-                  openSearch();
-                }
-              }}
-              className="p-2 rounded-lg hover:bg-surface-hover transition-colors text-zinc-400 hover:text-white hidden md:block"
-            >
-              {showSearch ? <X size={18} /> : <Search size={18} />}
-            </button>
+            <Tooltip text={showSearch ? (t('close') || 'Закрыть') : (t('searchMessages') || 'Поиск')} shortcut="Ctrl+F">
+              <button
+                onClick={() => {
+                  if (showSearch) {
+                    setShowSearch(false);
+                    setSearchText('');
+                    setSearchResults([]);
+                  } else {
+                    openSearch();
+                  }
+                }}
+                className="p-2 rounded-lg hover:bg-surface-hover transition-colors text-zinc-400 hover:text-white hidden md:block"
+              >
+                {showSearch ? <X size={18} /> : <Search size={18} />}
+              </button>
+            </Tooltip>
 
             {!isFavorites && (
               <>
-                <button
-                  onClick={() => {
-                    if (chat.type === 'personal' && otherMember) {
-                      onStartCall?.(otherMember.user, 'voice');
-                    } else if (chat.type === 'group') {
-                      onStartGroupCall?.(chat.id, chat.name || 'Group', 'voice');
-                    }
-                  }}
-                  className="p-2 rounded-lg hover:bg-surface-hover transition-colors text-zinc-400 hover:text-white hidden md:block" title={t('call')}>
-                  <Phone size={18} />
-                </button>
-                <button
-                  onClick={() => {
-                    if (chat.type === 'personal' && otherMember) {
-                      onStartCall?.(otherMember.user, 'video');
-                    } else if (chat.type === 'group') {
-                      onStartGroupCall?.(chat.id, chat.name || 'Group', 'video');
-                    }
-                  }}
-                  className="p-2 rounded-lg hover:bg-surface-hover transition-colors text-zinc-400 hover:text-white" title={t('videoCall')}>
-                  <Video size={18} />
-                </button>
+                <Tooltip text={t('call') || 'Начать голосовой звонок'}>
+                  <button
+                    onClick={() => {
+                      if (chat.type === 'personal' && otherMember) {
+                        onStartCall?.(otherMember.user, 'voice');
+                      } else if (chat.type === 'group') {
+                        onStartGroupCall?.(chat.id, chat.name || 'Group', 'voice');
+                      }
+                    }}
+                    className="p-2 rounded-lg hover:bg-surface-hover transition-colors text-zinc-400 hover:text-white hidden md:block"
+                  >
+                    <Phone size={18} />
+                  </button>
+                </Tooltip>
+                <Tooltip text={t('videoCall') || 'Начать видеозвонок'}>
+                  <button
+                    onClick={() => {
+                      if (chat.type === 'personal' && otherMember) {
+                        onStartCall?.(otherMember.user, 'video');
+                      } else if (chat.type === 'group') {
+                        onStartGroupCall?.(chat.id, chat.name || 'Group', 'video');
+                      }
+                    }}
+                    className="p-2 rounded-lg hover:bg-surface-hover transition-colors text-zinc-400 hover:text-white hidden md:block"
+                  >
+                    <Video size={18} />
+                  </button>
+                </Tooltip>
               </>
             )}
+          </div>
 
-            {/* Меню */}
+          {/* Меню (вынесено за overflow-hidden контейнер) */}
+          <div ref={topMenuRef} className="relative flex-shrink-0 ml-1">
+            <Tooltip text={t('menu') || 'Меню'}>
               <button
                 onClick={(e) => {
                   e.stopPropagation();
@@ -825,16 +954,17 @@ export default function ChatView({ onStartCall, onStartGroupCall }: { onStartCal
               >
                 <MoreVertical size={18} />
               </button>
-              <AnimatePresence>
-                {showTopMenu && (
-                  <motion.div
-                    initial={{ opacity: 0, scale: 0.95, y: -5 }}
-                    animate={{ opacity: 1, scale: 1, y: 0 }}
-                    exit={{ opacity: 0, scale: 0.95, y: -5 }}
-                    transition={{ duration: 0.15 }}
-                    className="absolute right-0 top-full mt-2 w-56 rounded-2xl glass-strong shadow-2xl z-50 py-1.5 ring-1 ring-border/50 backdrop-blur-2xl"
-                    onClick={(e) => e.stopPropagation()}
-                  >
+            </Tooltip>
+            <AnimatePresence>
+              {showTopMenu && (
+                <motion.div
+                  initial={{ opacity: 0, scale: 0.95, y: -5 }}
+                  animate={{ opacity: 1, scale: 1, y: 0 }}
+                  exit={{ opacity: 0, scale: 0.95, y: -5 }}
+                  transition={{ duration: 0.15 }}
+                  className="absolute right-0 top-full mt-2 w-56 rounded-2xl glass-strong shadow-2xl z-50 py-1.5 ring-1 ring-border/50 backdrop-blur-2xl"
+                  onClick={(e) => e.stopPropagation()}
+                >
                     <button
                       onClick={openSearch}
                       className="flex items-center gap-3 w-full px-4 py-2.5 text-sm text-zinc-300 hover:bg-surface-hover hover:text-white transition-colors"
@@ -846,7 +976,7 @@ export default function ChatView({ onStartCall, onStartGroupCall }: { onStartCal
                       <button
                         onClick={() => {
                           setShowTopMenu(false);
-                          setProfileUserId(otherMember.user.id);
+                          onOpenProfile?.(otherMember.user.id);
                         }}
                         className="flex items-center gap-3 w-full px-4 py-2.5 text-sm text-zinc-300 hover:bg-surface-hover hover:text-white transition-colors"
                       >
@@ -984,7 +1114,7 @@ export default function ChatView({ onStartCall, onStartGroupCall }: { onStartCal
                   </motion.div>
                 )}
               </AnimatePresence>
-          </div>
+            </div>
         </motion.div>
       )}
 
@@ -1083,8 +1213,7 @@ export default function ChatView({ onStartCall, onStartGroupCall }: { onStartCal
       {/* Сообщения */}
       <div
         ref={messagesContainerRef}
-        onScroll={handleScroll}
-        className={`flex-1 overflow-y-auto px-3 md:px-6 pt-4 md:pt-6 pb-2 relative z-10 ${!scrollReady && !isLoadingMessages && chatMessages.length > 0 ? 'invisible' : ''}`}
+        className="flex-1 relative z-10 min-h-0 overflow-hidden"
       >
         {currentBackground && (
           <div
@@ -1098,53 +1227,33 @@ export default function ChatView({ onStartCall, onStartGroupCall }: { onStartCal
             }}
           />
         )}
-        <div className="relative z-10">
         {isLoadingMessages ? (
-          <div className="flex justify-center py-8">
-            <div className="w-6 h-6 border-2 border-vortex-500 border-t-transparent rounded-full animate-spin" />
+          <div className="relative z-10 h-full overflow-auto px-3 md:px-6 pt-4 md:pt-6">
+            <MessageSkeleton />
           </div>
         ) : chatMessages.length === 0 ? (
           <div className="flex items-center justify-center h-full">
             <p className="text-sm text-zinc-500">{t('noMessages')}</p>
           </div>
         ) : (
-          <div className="space-y-1 max-w-3xl mx-auto">
-            {chatMessages.map((msg, i) => {
-              const prevMsg = i > 0 ? chatMessages[i - 1] : null;
-              const showAvatar = !prevMsg || prevMsg.senderId !== msg.senderId;
-              const showDate =
-                !prevMsg ||
-                new Date(msg.createdAt).toDateString() !== new Date(prevMsg.createdAt).toDateString();
-
-              return (
-                <div key={msg.id} id={`msg-${msg.id}`} className="transition-colors duration-500">
-                  {showDate && (
-                    <div className="flex justify-center my-4">
-                      <span className="px-3 py-1 rounded-full text-xs text-zinc-400 glass">
-                        {new Date(msg.createdAt).toLocaleDateString(lang === 'ru' ? 'ru-RU' : 'en-US', {
-                          day: 'numeric',
-                          month: 'long',
-                        })}
-                      </span>
-                    </div>
-                  )}
-                  <MessageBubble
-                    message={msg}
-                    isMine={msg.senderId === user?.id}
-                    showAvatar={showAvatar}
-                    onViewProfile={(userId) => setProfileUserId(userId)}
-                    selectionMode={selectionMode}
-                    isSelected={selectedMessages.has(msg.id)}
-                    onToggleSelect={handleToggleSelect}
-                    onStartSelectionMode={handleStartSelection}
-                  />
-                </div>
-              );
-            })}
-            <div ref={messagesEndRef} className="h-4" /> {/* Empty spacer for the bottom scroll boundary */}
-          </div>
+          <VirtualizedMessages
+            messages={chatMessages}
+            user={user}
+            lang={lang}
+            selectionMode={selectionMode}
+            selectedMessages={selectedMessages}
+            onViewProfile={handleViewProfile}
+            onToggleSelect={handleToggleSelect}
+            onStartSelectionMode={handleStartSelection}
+            scrollContainerRef={messagesContainerRef}
+            chatId={activeChat}
+            isLoadingMore={isLoadingMore}
+            hasMore={hasMore[activeChat || ''] || false}
+            onLoadMore={handleLoadMore}
+            onScrollStateChange={handleMessagesScroll}
+            onSaveScrollPosition={(pos) => { if (activeChat) saveScrollPosition(activeChat, pos); }}
+          />
         )}
-        </div>
       </div>
 
       {/* Кнопка прокрутки вниз */}
@@ -1155,18 +1264,23 @@ export default function ChatView({ onStartCall, onStartGroupCall }: { onStartCal
             animate={{ scale: 1, opacity: 1 }}
             exit={{ scale: 0, opacity: 0 }}
             onClick={() => scrollToBottom()}
-            className="absolute bottom-24 right-6 w-11 h-11 rounded-full bg-surface-tertiary/90 backdrop-blur-md border border-border shadow-2xl flex items-center justify-center text-zinc-400 hover:text-white hover:bg-surface-hover hover:scale-105 transition-all z-10"
+            className="absolute bottom-20 right-4 md:right-6 w-11 h-11 rounded-full bg-surface-tertiary/90 backdrop-blur-md border border-border shadow-2xl flex items-center justify-center text-zinc-400 hover:text-white hover:bg-surface-hover hover:scale-105 transition-all z-20"
           >
             <ArrowDown size={20} />
-            {unreadCount > 0 && (
-              <motion.span
-                initial={{ scale: 0 }}
-                animate={{ scale: 1 }}
-                className="absolute -top-1.5 -right-1.5 min-w-[20px] h-5 px-1.5 rounded-full bg-accent text-white text-[11px] font-bold flex items-center justify-center shadow-lg border-2 border-surface-secondary"
-              >
-                {unreadCount > 99 ? '99+' : unreadCount}
-              </motion.span>
-            )}
+          </motion.button>
+        )}
+      </AnimatePresence>
+      {/* Unread badge — показывается всегда когда есть непрочитанные */}
+      <AnimatePresence>
+        {!showScrollDown && unreadCount > 0 && (
+          <motion.button
+            initial={{ scale: 0, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            exit={{ scale: 0, opacity: 0 }}
+            onClick={() => scrollToBottom()}
+            className="absolute bottom-20 right-4 md:right-6 min-w-[44px] h-11 px-3 rounded-full bg-accent/90 backdrop-blur-md shadow-2xl flex items-center justify-center text-white text-sm font-bold hover:bg-accent hover:scale-105 transition-all z-20"
+          >
+            {unreadCount > 99 ? '99+' : unreadCount}
           </motion.button>
         )}
       </AnimatePresence>
@@ -1179,27 +1293,45 @@ export default function ChatView({ onStartCall, onStartGroupCall }: { onStartCal
       )}
 
       {/* Ввод сообщения */}
-      <MessageInput chatId={activeChat} isBlocked={isBlocked} blockedByOther={blockedByOther} onUnblock={async () => {
-        if (otherMember) {
-          await api.unblockUser(otherMember.user.id);
-          setIsBlocked(false);
-          const socket = getSocket();
-          if (socket) socket.emit('user_unblocked', { userId: otherMember.user.id });
-        }
-      }} />
-
-      {/* Профиль пользователя */}
-      <AnimatePresence>
-        {profileUserId && (
-          <UserProfile
-            userId={profileUserId}
-            chatId={activeChat || undefined}
-            onClose={() => setProfileUserId(null)}
-            isSelf={profileUserId === user?.id}
-            onStartCall={onStartCall}
-          />
-        )}
-      </AnimatePresence>
+      {selectionMode && isMobile ? (
+        <motion.div
+          initial={{ y: 80, opacity: 0 }}
+          animate={{ y: 0, opacity: 1 }}
+          exit={{ y: 80, opacity: 0 }}
+          transition={{ type: 'spring', stiffness: 350, damping: 30 }}
+          className="flex items-center gap-3 px-4 py-3 border-t border-border/40 bg-surface-secondary/95 backdrop-blur-xl z-20 flex-shrink-0 safe-area-inset-bottom"
+        >
+          <AnimatePresence>
+            {selectedMessages.size <= 1 && (
+              <motion.button
+                key="reply"
+                initial={{ y: 40, opacity: 0, scale: 0.9 }}
+                animate={{ y: 0, opacity: 1, scale: 1 }}
+                exit={{ y: 40, opacity: 0, scale: 0.9 }}
+                transition={{ type: 'spring', stiffness: 400, damping: 25 }}
+                onClick={handleReplySelected}
+                className="flex-1 flex items-center justify-center gap-2 py-3 bg-vortex-500 text-white font-medium rounded-2xl active:scale-95 transition-all shadow-lg shadow-vortex-500/30"
+              >
+                <Reply size={20} />
+                <span>{t('reply')}</span>
+              </motion.button>
+            )}
+          </AnimatePresence>
+          <motion.button
+            layout
+            initial={{ y: 40, opacity: 0, scale: 0.9 }}
+            animate={{ y: 0, opacity: 1, scale: 1 }}
+            transition={{ type: 'spring', stiffness: 400, damping: 25 }}
+            onClick={() => setShowForwardModal(true)}
+            className="flex-1 flex items-center justify-center gap-2 py-3 bg-white text-black font-medium rounded-2xl active:scale-95 transition-all shadow-lg"
+          >
+            <Forward size={20} />
+            <span>{t('forward')}</span>
+          </motion.button>
+        </motion.div>
+      ) : (
+        <MessageInput chatId={activeChat} isBlocked={isBlocked} blockedByOther={blockedByOther} onUnblock={handleUnblock} />
+      )}
 
       {/* Настройки группы */}
       <AnimatePresence>
@@ -1413,3 +1545,224 @@ export default function ChatView({ onStartCall, onStartGroupCall }: { onStartCal
     </motion.div>
   );
 }
+
+function MessageSkeleton() {
+  return (
+    <div className="flex flex-col gap-3 py-4 max-w-3xl mx-auto">
+      {[...Array(8)].map((_, i) => {
+        const isMine = i % 3 === 0;
+        const widths = ['w-48', 'w-64', 'w-36', 'w-56', 'w-44', 'w-60', 'w-40', 'w-52'];
+        const heights = ['h-10', 'h-16', 'h-8', 'h-12', 'h-10', 'h-14', 'h-8', 'h-10'];
+        return (
+          <div
+            key={i}
+            className={`flex ${isMine ? 'justify-end' : 'justify-start'}`}
+          >
+            <div
+              className={`${widths[i]} ${heights[i]} rounded-2xl ${
+                isMine
+                  ? 'bg-vortex-500/15 rounded-br-md'
+                  : 'bg-white/[0.06] rounded-bl-md'
+              } animate-pulse`}
+              style={{
+                animationDelay: `${i * 80}ms`,
+                animationDuration: '1.5s',
+              }}
+            />
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+interface VirtualizedMessagesProps {
+  messages: Message[];
+  user: any;
+  lang: string;
+  selectionMode: boolean;
+  selectedMessages: Set<string>;
+  onViewProfile: (userId: string) => void;
+  onToggleSelect: (msgId: string) => void;
+  onStartSelectionMode: (msgId: string) => void;
+  scrollContainerRef: React.RefObject<HTMLDivElement | null>;
+  chatId: string | null;
+  isLoadingMore: boolean;
+  hasMore: boolean;
+  onLoadMore: () => void;
+  onScrollStateChange?: (isNearBottom: boolean) => void;
+  onSaveScrollPosition?: (scrollTop: number) => void;
+}
+
+const VirtualizedMessages = memo(function VirtualizedMessages({
+  messages,
+  user,
+  lang,
+  selectionMode,
+  selectedMessages,
+  onViewProfile,
+  onToggleSelect,
+  onStartSelectionMode,
+  scrollContainerRef,
+  chatId,
+  isLoadingMore,
+  hasMore,
+  onLoadMore,
+  onScrollStateChange,
+  onSaveScrollPosition,
+}: VirtualizedMessagesProps) {
+  const scrollElRef = useRef<HTMLDivElement>(null);
+  const prevMessageCountRef = useRef(messages.length);
+  const prevScrollHeightRef = useRef(0);
+
+  const itemData = useMemo(() => {
+    const items: Array<{ type: 'date'; date: string; key: string } | { type: 'message'; msg: Message; showAvatar: boolean; showDate: boolean; key: string }> = [];
+    for (let i = 0; i < messages.length; i++) {
+      const msg = messages[i];
+      const prevMsg = i > 0 ? messages[i - 1] : null;
+      const showAvatar = !prevMsg || prevMsg.senderId !== msg.senderId;
+      const showDate = !prevMsg ||
+        new Date(msg.createdAt).toDateString() !== new Date(prevMsg.createdAt).toDateString();
+
+      if (showDate) {
+        const dateStr = new Date(msg.createdAt).toLocaleDateString(lang === 'ru' ? 'ru-RU' : 'en-US', {
+          day: 'numeric',
+          month: 'long',
+        });
+        items.push({ type: 'date', date: dateStr, key: `date-${dateStr}-${msg.id}` });
+      }
+      items.push({ type: 'message', msg, showAvatar, showDate, key: msg.id });
+    }
+    return items;
+  }, [messages, lang]);
+
+  const virtualizer = useVirtualizer({
+    count: itemData.length,
+    getScrollElement: () => scrollElRef.current,
+    estimateSize: (index) => {
+      const item = itemData[index];
+      if (item.type === 'date') return 44;
+      const msg = item.msg;
+      const hasMedia = msg.media && msg.media.length > 0;
+      const hasContent = !!msg.content;
+      if (hasMedia && hasContent) return 200;
+      if (hasMedia) return 160;
+      if (hasContent && msg.content!.length > 200) return 120;
+      return 64;
+    },
+    overscan: typeof window !== 'undefined' && window.innerWidth < 768 ? 1 : 3,
+  });
+
+  // Scroll to bottom on initial load and new messages
+  useEffect(() => {
+    const el = scrollElRef.current;
+    if (!el) return;
+
+    if (messages.length > prevMessageCountRef.current) {
+      const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+      if (distanceFromBottom < 400 || messages[messages.length - 1]?.senderId === user?.id) {
+        requestAnimationFrame(() => { el.scrollTop = el.scrollHeight; });
+      }
+    } else if (prevMessageCountRef.current === 0 && itemData.length > 0) {
+      el.scrollTop = el.scrollHeight;
+    }
+    prevMessageCountRef.current = messages.length;
+  }, [messages.length, itemData.length, user?.id, messages]);
+
+  // Preserve scroll position when loading more messages at top
+  useEffect(() => {
+    const el = scrollElRef.current;
+    if (!el) return;
+    const newScrollHeight = el.scrollHeight;
+    const diff = newScrollHeight - prevScrollHeightRef.current;
+    if (diff > 0 && isLoadingMore) {
+      el.scrollTop += diff;
+    }
+    prevScrollHeightRef.current = newScrollHeight;
+  }, [messages.length, isLoadingMore]);
+
+  // Load more when scrolling near the top
+  useEffect(() => {
+    const el = scrollElRef.current;
+    if (!el || !hasMore || isLoadingMore) return;
+
+    const handleScroll = () => {
+      if (el.scrollTop < 200 && hasMore && !isLoadingMore) {
+        onLoadMore();
+      }
+    };
+
+    el.addEventListener('scroll', handleScroll, { passive: true });
+    return () => el.removeEventListener('scroll', handleScroll);
+  }, [hasMore, isLoadingMore, onLoadMore]);
+
+  // Track scroll state for showScrollDown button + save position
+  const handleScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
+    const el = e.currentTarget;
+    if (!el) return;
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    onScrollStateChange?.(distanceFromBottom < 250);
+    onSaveScrollPosition?.(el.scrollTop);
+  }, [onScrollStateChange, onSaveScrollPosition]);
+
+  return (
+    <div
+      ref={scrollElRef}
+      data-scroll-area
+      onScroll={handleScroll}
+      className="absolute inset-0 overflow-auto px-3 md:px-6 pt-4 md:pt-6 pb-2"
+    >
+      {isLoadingMore && (
+        <div className="flex justify-center py-3">
+          <div className="w-5 h-5 border-2 border-vortex-500 border-t-transparent rounded-full animate-spin" />
+        </div>
+      )}
+      <div
+        style={{ height: `${virtualizer.getTotalSize()}px`, width: '100%', position: 'relative' }}
+      >
+        {virtualizer.getVirtualItems().map((virtualRow) => {
+          const item = itemData[virtualRow.index];
+          return (
+            <div
+              key={virtualRow.key}
+              data-index={virtualRow.index}
+              ref={virtualizer.measureElement}
+              style={{
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                width: '100%',
+                transform: `translateY(${virtualRow.start}px)`,
+                containIntrinsicSize: 'auto 64px',
+                contentVisibility: 'auto',
+              }}
+            >
+              {item.type === 'date' ? (
+                <div className="flex justify-center my-4" id={`msg-${item.key}`}>
+                  <span className="px-3 py-1 rounded-full text-xs text-zinc-400 glass">
+                    {item.date}
+                  </span>
+                </div>
+              ) : (
+                <div id={`msg-${item.msg.id}`} className="transition-colors duration-500">
+                  <MessageBubble
+                    message={item.msg}
+                    isMine={item.msg.senderId === user?.id}
+                    showAvatar={item.showAvatar}
+                    onViewProfile={onViewProfile}
+                    selectionMode={selectionMode}
+                    isSelected={selectedMessages.has(item.msg.id)}
+                    onToggleSelect={onToggleSelect}
+                    onStartSelectionMode={onStartSelectionMode}
+                  />
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      <div className="h-4" />
+    </div>
+  );
+});
+

@@ -1,6 +1,32 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 
 /**
+ * Returns true when the element is visible in viewport.
+ * Auto-disconnects observer when unmounted.
+ */
+export function useVisibilityObserver(
+  ref: React.RefObject<HTMLElement | null>,
+  rootMargin = '200px',
+): boolean {
+  const [isVisible, setIsVisible] = useState(false);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+
+    const observer = new IntersectionObserver(
+      ([entry]) => setIsVisible(entry.isIntersecting),
+      { rootMargin, threshold: 0 }
+    );
+
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [ref, rootMargin]);
+
+  return isVisible;
+}
+
+/**
  * Debounced value — updates value after the specified delay.
  */
 export function useDebouncedValue<T>(value: T, delay: number): T {

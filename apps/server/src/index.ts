@@ -2,6 +2,7 @@ import express from 'express';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
 import cors from 'cors';
+import compression from 'compression';
 import rateLimit from 'express-rate-limit';
 import path from 'path';
 import fs from 'fs';
@@ -30,11 +31,28 @@ const io = new Server(server, {
   },
 });
 
+// Make io accessible in Express route handlers via req.app.get('io')
+app.set('io', io);
+
 // Trust first proxy (Nginx) so req.ip returns real client IP from X-Forwarded-For
 app.set('trust proxy', 1);
 
 app.use(cors({ origin: config.corsOrigins }));
+app.use(compression({ threshold: 1024 }));
 app.use(express.json({ limit: '10mb' }));
+
+// Security headers
+app.use((_req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('X-XSS-Protection', '1; mode=block');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader(
+    'Content-Security-Policy',
+    "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: http: https:; font-src 'self' https://fonts.gstatic.com; connect-src 'self' ws: wss: http: https:; media-src 'self' blob:; worker-src 'self' blob:; frame-ancestors 'none'"
+  );
+  next();
+});
 
 // Serve uploads — decrypts encrypted files on the fly
 app.use('/uploads', (req, res, next) => {
@@ -173,6 +191,16 @@ async function cleanupExpiredStories() {
 
 cleanupExpiredStories();
 setInterval(cleanupExpiredStories, 10 * 60 * 1000);
+
+// Раздача статики фронтенда (для Render / production)
+const webDistPath = path.join(__dirname, '../../../apps/web/dist');
+if (fs.existsSync(webDistPath)) {
+  app.use(express.static(webDistPath));
+  app.get('*', (_req, res) => {
+    res.sendFile(path.join(webDistPath, 'index.html'));
+  });
+  console.log('  ✔ Static web client served from', webDistPath);
+}
 
 server.listen(config.port, () => {
   console.log(`\n  ⚡ Vortex Server запущен на порту ${config.port}\n`);

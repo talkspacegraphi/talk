@@ -1,11 +1,16 @@
-import { app, BrowserWindow, Menu, Tray, nativeImage, ipcMain, desktopCapturer } from 'electron';
+import { app, BrowserWindow, Menu, Tray, nativeImage, ipcMain, desktopCapturer, screen } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
 import { spawn, ChildProcess } from 'child_process';
 
+// Remote server URL — change to your Render URL for production builds
+// Set to '' to use embedded local server instead
+const REMOTE_URL = process.env.VORTEX_SERVER_URL || '';
+
 let mainWindow: BrowserWindow | null = null;
 let serverProcess: ChildProcess | null = null;
 let tray: Tray | null = null;
+let trayMenuWindow: BrowserWindow | null = null;
 let isQuitting = false;
 
 function ensureDir(dirPath: string): void {
@@ -17,7 +22,7 @@ function ensureDir(dirPath: string): void {
 async function waitForServer(maxAttempts = 10): Promise<boolean> {
   for (let i = 0; i < maxAttempts; i++) {
     try {
-      const response = await fetch('http://localhost:3001/api/health');
+      const response = await fetch('http://127.0.0.1:3001/api/health');
       if (response.ok) {
         console.log('Server is ready!');
         return true;
@@ -28,6 +33,86 @@ async function waitForServer(maxAttempts = 10): Promise<boolean> {
     await new Promise(resolve => setTimeout(resolve, 1000));
   }
   return false;
+}
+
+function createTrayMenu() {
+  if (trayMenuWindow && !trayMenuWindow.isDestroyed()) {
+    trayMenuWindow.close();
+    trayMenuWindow = null;
+    return;
+  }
+
+  const isDev = !app.isPackaged;
+  const trayBounds = tray?.getBounds();
+  if (!trayBounds) return;
+
+  const menuHeight = 192;
+  const menuWidth = 232;
+  const gap = 8;
+
+  let x: number;
+  let y: number;
+
+  const cursorPoint = screen.getCursorScreenPoint();
+  const display = screen.getDisplayNearestPoint(cursorPoint);
+  const { x: workX, y: workY, width: workWidth, height: workHeight } = display.workArea;
+
+  x = Math.round(cursorPoint.x - menuWidth / 2);
+  y = Math.round(cursorPoint.y - menuHeight - gap);
+
+  if (x < workX + 4) x = workX + 4;
+  if (x + menuWidth > workX + workWidth - 4) x = workX + workWidth - menuWidth - 4;
+  if (y < workY + 4) y = Math.round(cursorPoint.y + gap);
+
+  trayMenuWindow = new BrowserWindow({
+    width: menuWidth,
+    height: menuHeight,
+    x,
+    y,
+    frame: false,
+    resizable: false,
+    skipTaskbar: true,
+    alwaysOnTop: true,
+    transparent: true,
+    hasShadow: false,
+    focusable: true,
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+  });
+
+  trayMenuWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+
+  const menuPath = isDev
+    ? path.join(__dirname, '../tray-menu.html')
+    : path.join(process.resourcesPath, 'tray-menu.html');
+
+  trayMenuWindow.loadFile(menuPath);
+
+  trayMenuWindow.webContents.on('did-finish-load', () => {
+    const iconPath = isDev
+      ? path.join(__dirname, '../build/icon.png')
+      : path.join(process.resourcesPath, 'build', 'icon.png');
+    if (fs.existsSync(iconPath)) {
+      const iconUrl = iconPath.replace(/\\/g, '/');
+      trayMenuWindow?.webContents.executeJavaScript(
+        `document.getElementById('appIcon').src = 'file:///${iconUrl}';`
+      );
+    }
+  });
+
+  trayMenuWindow.on('blur', () => {
+    if (trayMenuWindow && !trayMenuWindow.isDestroyed()) {
+      trayMenuWindow.close();
+    }
+    trayMenuWindow = null;
+  });
+
+  trayMenuWindow.on('closed', () => {
+    trayMenuWindow = null;
+  });
 }
 
 function createTray() {
@@ -49,28 +134,6 @@ function createTray() {
   tray = new Tray(trayIcon);
   tray.setToolTip('Talk Messenger');
 
-  const contextMenu = Menu.buildFromTemplate([
-    {
-      label: 'Открыть Talk',
-      click: () => {
-        if (mainWindow) {
-          mainWindow.show();
-          mainWindow.focus();
-        }
-      }
-    },
-    { type: 'separator' },
-    {
-      label: 'Выход',
-      click: () => {
-        isQuitting = true;
-        app.quit();
-      }
-    }
-  ]);
-
-  tray.setContextMenu(contextMenu);
-
   tray.on('click', () => {
     if (mainWindow) {
       if (mainWindow.isVisible()) {
@@ -80,6 +143,10 @@ function createTray() {
         mainWindow.focus();
       }
     }
+  });
+
+  tray.on('right-click', () => {
+    createTrayMenu();
   });
 
   tray.on('double-click', () => {
@@ -182,7 +249,7 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.js'),
     },
     icon: isDev
-      ? path.join(__dirname, '../../build/icon.png')
+      ? path.join(__dirname, '../build/icon.png')
       : path.join(process.resourcesPath, 'build', 'icon.png'),
     title: 'Talk',
     backgroundColor: '#0a0e27',
@@ -241,12 +308,6 @@ function createWindow() {
     if (!isQuitting) {
       event.preventDefault();
       mainWindow?.hide();
-      if (tray) {
-        tray.displayBalloon({
-          title: 'Talk',
-          content: 'Приложение свёрнуто в трей.',
-        });
-      }
     }
   });
 
@@ -264,6 +325,21 @@ function createWindow() {
   });
 
   Menu.setApplicationMenu(null);
+
+  // Grant media permissions (microphone, camera) for calls
+  mainWindow.webContents.session.setPermissionRequestHandler((_webContents, permission, callback) => {
+    const allowedPermissions = ['media', 'microphone', 'camera', 'display-capture', 'desktop-capture'];
+    if (allowedPermissions.includes(permission)) {
+      callback(true);
+    } else {
+      callback(false);
+    }
+  });
+
+  mainWindow.webContents.session.setPermissionCheckHandler((_webContents, permission, _requestingOrigin, _details) => {
+    const allowedPermissions = ['media', 'microphone', 'camera', 'display-capture', 'desktop-capture'];
+    return allowedPermissions.includes(permission);
+  });
 }
 
 async function loadMainApp() {
@@ -272,17 +348,36 @@ async function loadMainApp() {
   const isDev = !app.isPackaged;
 
   if (isDev) {
-    const viteUrl = 'http://localhost:5173';
+    const viteUrl = 'http://127.0.0.1:5173';
     console.log(`Loading Vite from: ${viteUrl}`);
+
+    let ready = false;
+    for (let i = 0; i < 30; i++) {
+      try {
+        const resp = await fetch(viteUrl, { method: 'HEAD' });
+        if (resp.ok || resp.status < 500) { ready = true; break; }
+      } catch {}
+      await new Promise(r => setTimeout(r, 500));
+    }
+    if (!ready) {
+      console.error('Vite dev server not ready after 15s!');
+    }
+
+    await mainWindow.webContents.session.clearCache();
+    await mainWindow.webContents.session.clearStorageData();
+
     await mainWindow.loadURL(viteUrl);
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.openDevTools();
     }
+  } else if (REMOTE_URL) {
+    // Remote server mode (Render, VPS, etc.)
+    console.log(`Loading from remote: ${REMOTE_URL}`);
+    await mainWindow.loadURL(REMOTE_URL);
   } else {
+    // Embedded server mode (offline / LAN)
     const indexPath = path.join(process.resourcesPath, 'web', 'dist', 'index.html');
     console.log('Loading from:', indexPath);
-
-    // Используем loadFile - он правильно обрабатывает относительные пути
     await mainWindow.loadFile(indexPath);
   }
 
@@ -324,16 +419,46 @@ app.whenReady().then(async () => {
     mainWindow?.close();
   });
 
+  ipcMain.on('tray-action', (_event, action: string) => {
+    if (trayMenuWindow && !trayMenuWindow.isDestroyed()) {
+      trayMenuWindow.close();
+      trayMenuWindow = null;
+    }
+
+    switch (action) {
+      case 'show':
+        if (mainWindow) {
+          mainWindow.show();
+          mainWindow.focus();
+        }
+        break;
+      case 'minimize':
+        mainWindow?.hide();
+        break;
+      case 'quit':
+        isQuitting = true;
+        app.quit();
+        break;
+    }
+  });
+
   createWindow();
   createTray();
 
-  startServer().then(async () => {
-    console.log('Server ready, loading app...');
-    await new Promise(resolve => setTimeout(resolve, 2000));
+  if (REMOTE_URL) {
+    // Remote server mode — no local server needed
+    console.log(`Remote mode: ${REMOTE_URL}`);
     await loadMainApp();
-  }).catch(err => {
-    console.error('Failed to start:', err);
-  });
+  } else {
+    // Embedded server mode
+    startServer().then(async () => {
+      console.log('Server ready, loading app...');
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      await loadMainApp();
+    }).catch(err => {
+      console.error('Failed to start:', err);
+    });
+  }
 });
 
 app.on('window-all-closed', () => {

@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback, memo, lazy, Suspense } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Send,
@@ -26,9 +26,10 @@ import { useAuthStore } from '../stores/authStore';
 import { api } from '../lib/api';
 import { getSocket } from '../lib/socket';
 import { useLang } from '../lib/i18n';
-import { AUDIO_EXTENSIONS, MAX_FILE_SIZE } from '../lib/types';
-import EmojiPicker from './EmojiPicker';
-import GifPicker from './GifPicker';
+import { AUDIO_EXTENSIONS, MAX_FILE_SIZE, type Message } from '../lib/types';
+
+const EmojiPicker = lazy(() => import('./EmojiPicker'));
+const GifPicker = lazy(() => import('./GifPicker'));
 
 interface Attachment {
   file: File;
@@ -43,14 +44,19 @@ interface MessageInputProps {
   onUnblock?: () => void;
 }
 
-export default function MessageInput({ chatId, isBlocked, blockedByOther, onUnblock }: MessageInputProps) {
+export default memo(function MessageInput({ chatId, isBlocked, blockedByOther, onUnblock }: MessageInputProps) {
   const { user } = useAuthStore();
   const { t } = useLang();
-  const { replyTo, editingMessage, setReplyTo, setEditingMessage, getDraft, setDraft, chats } = useChatStore();
+  const replyTo = useChatStore(s => s.replyTo);
+  const editingMessage = useChatStore(s => s.editingMessage);
+  const setReplyTo = useChatStore(s => s.setReplyTo);
+  const setEditingMessage = useChatStore(s => s.setEditingMessage);
+  const getDraft = useChatStore(s => s.getDraft);
+  const setDraft = useChatStore(s => s.setDraft);
+  const addOptimisticMessage = useChatStore(s => s.addOptimisticMessage);
+  const chat = useChatStore(s => s.chats.find(c => c.id === chatId));
   const [text, setText] = useState(() => getDraft(chatId));
 
-  // Get current chat members for @mentions
-  const chat = chats.find(c => c.id === chatId);
   const isGroup = chat?.type === 'group';
   const chatMembers = (chat?.members || []).filter((m) => m.user.id !== user?.id);
   const [showEmoji, setShowEmoji] = useState(false);
@@ -60,6 +66,7 @@ export default function MessageInput({ chatId, isBlocked, blockedByOther, onUnbl
   const [showAttachMenu, setShowAttachMenu] = useState(false);
   const [attachment, setAttachment] = useState<Attachment | null>(null);
   const [isSending, setIsSending] = useState(false);
+  const [sendPulse, setSendPulse] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
   const [formatMenu, setFormatMenu] = useState<{ show: boolean; x: number; y: number }>({ show: false, x: 0, y: 0 });
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
@@ -214,7 +221,11 @@ export default function MessageInput({ chatId, isBlocked, blockedByOther, onUnbl
   }, [attachment]);
 
   // Typing events
+  const lastTypingEmit = useRef(0);
   const emitTyping = useCallback(() => {
+    const now = Date.now();
+    if (now - lastTypingEmit.current < 500) return; // debounce: max once per 500ms
+    lastTypingEmit.current = now;
     const socket = getSocket();
     if (!socket) return;
     socket.emit('typing_start', chatId);
@@ -239,6 +250,42 @@ export default function MessageInput({ chatId, isBlocked, blockedByOther, onUnbl
     socket.emit('typing_stop', chatId);
     if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
 
+    // Генерируем clientId — связь между оптимистичным сообщением и серверным эхо
+    const clientId = `local-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+
+    // Сразу прокручиваем чат вниз и пульсируем кнопку (Telegram-style мгновенный отклик)
+    window.dispatchEvent(new CustomEvent('vortex:scroll-to-bottom'));
+    setSendPulse(p => p + 1);
+
+    // Оптимистичное сообщение: для текста/gif добавляем сразу, для медиа — после загрузки
+    if (!hasAttachment && user) {
+      const replyToMsg = replyTo;
+      const optimistic: Message = {
+        id: clientId,
+        clientId,
+        chatId,
+        senderId: user.id,
+        sender: {
+          id: user.id,
+          username: user.username,
+          displayName: user.displayName,
+          avatar: user.avatar ?? null,
+        },
+        content: trimmed || null,
+        type: 'text',
+        replyToId: replyToMsg?.id || null,
+        quote: replyToMsg?.quote || null,
+        isEdited: false,
+        isDeleted: false,
+        createdAt: new Date().toISOString(),
+        media: [],
+        reactions: [],
+        readBy: [{ userId: user.id }],
+        pending: true,
+      };
+      addOptimisticMessage(optimistic);
+    }
+
     if (editingMessage) {
       socket.emit('edit_message', {
         messageId: editingMessage.id,
@@ -262,6 +309,7 @@ export default function MessageInput({ chatId, isBlocked, blockedByOther, onUnbl
         // Send single message with media array
         socket.emit('send_message', {
           chatId,
+          clientId,
           content: trimmed || null,
           type: attachments[0].type, // Use actual type (audio/image/file) instead of forcing voice
           media: uploadResults.map((result, i) => ({
@@ -289,6 +337,7 @@ export default function MessageInput({ chatId, isBlocked, blockedByOther, onUnbl
         // Send audio files as 'audio' type, not 'voice' (Discord-style)
         socket.emit('send_message', {
           chatId,
+          clientId,
           content: trimmed || null,
           type: isAudioType ? 'audio' : attachment.type,
           mediaUrl: result.url,
@@ -317,6 +366,7 @@ export default function MessageInput({ chatId, isBlocked, blockedByOther, onUnbl
         // Отправляем как изображение/гифку
         socket.emit('send_message', {
           chatId,
+          clientId,
           content: null,
           type: 'image',
           mediaUrl: trimmed,
@@ -327,9 +377,10 @@ export default function MessageInput({ chatId, isBlocked, blockedByOther, onUnbl
           ...(scheduledAt ? { scheduledAt } : {}),
         });
       } else {
-        // Обычное текстовое сообщение
+        // Обычное текстовое сообщение — оптимистичное уже добавлено, отправляем с тем же clientId
         socket.emit('send_message', {
           chatId,
+          clientId,
           content: trimmed,
           type: 'text',
           replyToId: replyTo?.id || null,
@@ -496,8 +547,10 @@ export default function MessageInput({ chatId, isBlocked, blockedByOther, onUnbl
           const result = await api.uploadFile(file);
           const socket = getSocket();
           if (socket) {
+            const voiceClientId = `local-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
             socket.emit('send_message', {
               chatId,
+              clientId: voiceClientId,
               content: null,
               type: 'voice',
               mediaUrl: result.url,
@@ -590,43 +643,64 @@ export default function MessageInput({ chatId, isBlocked, blockedByOther, onUnbl
     }
   };
 
-  // Touch handlers for mic button
-  const handleMicTouchStart = (e: React.TouchEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    const touch = e.touches[0];
-    setTouchStartY(touch.clientY);
-    startRecording(false);
-  };
+  // Touch handlers for mic button (using native non-passive listeners)
+  const micBtnRef = useRef<HTMLButtonElement>(null);
+  const touchStartYRef = useRef<number | null>(null);
+  const isRecordingRef = useRef(isRecording);
+  const isRecordingLockedRef = useRef(isRecordingLocked);
+  isRecordingRef.current = isRecording;
+  isRecordingLockedRef.current = isRecordingLocked;
 
-  const handleMicTouchMove = (e: React.TouchEvent) => {
-    if (!isRecording || isRecordingLocked || touchStartY === null) return;
-    e.preventDefault();
-    e.stopPropagation();
-    const touch = e.touches[0];
-    const deltaY = touchStartY - touch.clientY;
-    const offset = Math.max(0, deltaY);
-    setSlideOffset(offset);
+  useEffect(() => {
+    const btn = micBtnRef.current;
+    if (!btn) return;
 
-    // Lock when slid up 100px
-    if (offset > 100) {
-      setIsRecordingLocked(true);
+    const onTouchStart = (e: TouchEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const touch = e.touches[0];
+      touchStartYRef.current = touch.clientY;
       setSlideOffset(0);
-      setTouchStartY(null);
-    }
-  };
+      startRecording(false);
+    };
 
-  const handleMicTouchEnd = (e: React.TouchEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setTouchStartY(null);
-    setSlideOffset(0);
+    const onTouchMove = (e: TouchEvent) => {
+      if (!isRecordingRef.current || isRecordingLockedRef.current || touchStartYRef.current === null) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const touch = e.touches[0];
+      const deltaY = touchStartYRef.current - touch.clientY;
+      const offset = Math.max(0, deltaY);
+      setSlideOffset(offset);
 
-    // If not locked, send immediately
-    if (isRecording && !isRecordingLocked) {
-      stopRecording();
-    }
-  };
+      if (offset > 100) {
+        setIsRecordingLocked(true);
+        setSlideOffset(0);
+        touchStartYRef.current = null;
+      }
+    };
+
+    const onTouchEnd = (e: TouchEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      touchStartYRef.current = null;
+      setSlideOffset(0);
+
+      if (isRecordingRef.current && !isRecordingLockedRef.current) {
+        stopRecording();
+      }
+    };
+
+    btn.addEventListener('touchstart', onTouchStart, { passive: false });
+    btn.addEventListener('touchmove', onTouchMove, { passive: false });
+    btn.addEventListener('touchend', onTouchEnd, { passive: false });
+
+    return () => {
+      btn.removeEventListener('touchstart', onTouchStart);
+      btn.removeEventListener('touchmove', onTouchMove);
+      btn.removeEventListener('touchend', onTouchEnd);
+    };
+  }, []);
 
   const formatTime = (sec: number) => {
     const m = Math.floor(sec / 60);
@@ -979,6 +1053,13 @@ export default function MessageInput({ chatId, isBlocked, blockedByOther, onUnbl
               </div>
             </div>
             <span className="text-sm text-white/60 flex-shrink-0 hidden md:block">← Отпустите для отправки</span>
+            {/* Send button for mobile */}
+            <button
+              onClick={stopRecording}
+              className="md:hidden w-12 h-12 rounded-full flex items-center justify-center bg-gradient-to-br from-vortex-500 to-vortex-600 hover:from-vortex-600 hover:to-vortex-700 transition-all text-white active:scale-95 shadow-[0_4px_20px_rgba(99,102,241,0.5)] flex-shrink-0"
+            >
+              <Send size={20} strokeWidth={2.5} className="translate-x-[1px]" />
+            </button>
           </motion.div>
         )
       ) : (
@@ -1114,7 +1195,8 @@ export default function MessageInput({ chatId, isBlocked, blockedByOther, onUnbl
             <AnimatePresence>
               {showEmoji && (
                 <div className="fixed inset-x-0 bottom-0 z-50 md:absolute md:inset-x-auto md:right-0 md:bottom-auto md:top-[calc(100%+12px)]">
-                  <EmojiPicker
+                  <Suspense fallback={<div className="w-80 h-96 bg-surface-secondary rounded-2xl animate-pulse" />}>
+                    <EmojiPicker
                     onSelect={(emoji) => {
                       setText((prev) => {
                         const next = prev + emoji;
@@ -1126,8 +1208,31 @@ export default function MessageInput({ chatId, isBlocked, blockedByOther, onUnbl
                     onSelectGif={(gifUrl) => {
                       const socket = getSocket();
                       if (socket) {
+                        const gifClientId = `local-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+                        // Оптимистично добавляем гифку в чат
+                        if (user) {
+                          useChatStore.getState().addOptimisticMessage({
+                            id: gifClientId,
+                            clientId: gifClientId,
+                            chatId,
+                            senderId: user.id,
+                            sender: { id: user.id, username: user.username, displayName: user.displayName, avatar: user.avatar ?? null },
+                            content: null,
+                            type: 'image',
+                            replyToId: replyTo?.id || null,
+                            isEdited: false,
+                            isDeleted: false,
+                            createdAt: new Date().toISOString(),
+                            media: [{ id: 'tmp', type: 'image', url: gifUrl, filename: 'gif', thumbnail: null, size: null, duration: null, width: null, height: null }],
+                            reactions: [],
+                            readBy: [{ userId: user.id }],
+                            pending: true,
+                          });
+                          window.dispatchEvent(new CustomEvent('vortex:scroll-to-bottom'));
+                        }
                         socket.emit('send_message', {
                           chatId,
+                          clientId: gifClientId,
                           content: null,
                           type: 'image',
                           mediaUrl: gifUrl,
@@ -1141,6 +1246,7 @@ export default function MessageInput({ chatId, isBlocked, blockedByOther, onUnbl
                     }}
                     onClose={() => setShowEmoji(false)}
                   />
+                  </Suspense>
                 </div>
               )}
             </AnimatePresence>
@@ -1150,7 +1256,7 @@ export default function MessageInput({ chatId, isBlocked, blockedByOther, onUnbl
           <div className="flex-shrink-0 self-center mr-0.5 relative">
             {hasContent ? (
               <>
-                <button
+                <motion.button
                   onClick={() => handleSend()}
                   onContextMenu={(e) => {
                     e.preventDefault();
@@ -1158,10 +1264,24 @@ export default function MessageInput({ chatId, isBlocked, blockedByOther, onUnbl
                     setShowSchedule(true);
                   }}
                   disabled={isSending}
-                  className="w-10 h-10 flex items-center justify-center rounded-full bg-accent hover:bg-accent-hover transition-colors text-white disabled:opacity-50 shadow-md transform hover:scale-105"
+                  whileTap={{ scale: 0.82 }}
+                  whileHover={{ scale: 1.08 }}
+                  animate={isSending ? { scale: [1, 0.85, 1.05, 1] } : { scale: 1 }}
+                  transition={{ type: 'spring', stiffness: 600, damping: 18 }}
+                  className="relative w-10 h-10 flex items-center justify-center rounded-full bg-gradient-to-br from-vortex-500 to-purple-600 hover:from-vortex-400 hover:to-purple-500 text-white disabled:opacity-50 shadow-[0_4px_20px_rgba(99,102,241,0.45)] hover:shadow-[0_6px_28px_rgba(99,102,241,0.6)]"
                 >
-                  <Send size={16} className="translate-x-[1px] translate-y-[1px]" />
-                </button>
+                  <motion.span
+                    key={sendPulse}
+                    initial={{ scale: 0.4, opacity: 0, rotate: -30 }}
+                    animate={{ scale: [0.4, 1.25, 1], opacity: 1, rotate: 0 }}
+                    transition={{ type: 'spring', stiffness: 500, damping: 16 }}
+                    className="flex items-center justify-center"
+                  >
+                    <Send size={16} className="translate-x-[1px] translate-y-[1px]" />
+                  </motion.span>
+                  {/* Glow ring on hover */}
+                  <span className="pointer-events-none absolute inset-0 rounded-full ring-0 hover:ring-4 ring-vortex-400/30 transition-all duration-300" />
+                </motion.button>
                 <AnimatePresence>
                   {showSchedule && (
                     <>
@@ -1273,15 +1393,13 @@ export default function MessageInput({ chatId, isBlocked, blockedByOther, onUnbl
               </>
             ) : (
               <button
+                ref={micBtnRef}
                 onClick={() => {
                   // Only trigger on desktop (no touch support)
                   if (!('ontouchstart' in window)) {
                     startRecording(true);
                   }
                 }}
-                onTouchStart={handleMicTouchStart}
-                onTouchMove={handleMicTouchMove}
-                onTouchEnd={handleMicTouchEnd}
                 className="w-10 h-10 flex items-center justify-center rounded-full bg-white/10 text-white/70 hover:text-white hover:bg-white/20 transition-all shadow-md transform hover:scale-105"
               >
                 <Mic size={18} />
@@ -1354,7 +1472,7 @@ export default function MessageInput({ chatId, isBlocked, blockedByOther, onUnbl
       )}
     </div>
   );
-}
+});
 
 /* =================== Schedule Mini Calendar =================== */
 function ScheduleCalendar({

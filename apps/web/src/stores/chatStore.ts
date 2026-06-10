@@ -3,6 +3,8 @@ import { api } from '../lib/api';
 import { useAuthStore } from './authStore';
 import type { Chat, ChatMember, Message, TypingUser } from '../lib/types';
 
+const MAX_MESSAGES_PER_CHAT = 100;
+
 interface ChatState {
   chats: Chat[];
   activeChat: string | null;
@@ -13,16 +15,27 @@ interface ChatState {
   editingMessage: Message | null;
   isLoadingChats: boolean;
   isLoadingMessages: boolean;
+  isLoadingMore: boolean;
+  hasMore: Record<string, boolean>;
   searchQuery: string;
   drafts: Record<string, string>;
+  scrollPositions: Record<string, number>;
 
   setActiveChat: (chatId: string | null) => void;
+  saveScrollPosition: (chatId: string, scrollTop: number) => void;
   setSearchQuery: (query: string) => void;
   setDraft: (chatId: string, text: string) => void;
   getDraft: (chatId: string) => string;
   loadChats: () => Promise<void>;
   loadMessages: (chatId: string) => Promise<void>;
+  loadMoreMessages: (chatId: string) => Promise<void>;
   addMessage: (message: Message) => void;
+  /** Мгновенно добавляет «локальное» сообщение (до ответа сервера) */
+  addOptimisticMessage: (message: Message) => void;
+  /** Заменяет pending-сообщение с clientId на подтверждённое сервером */
+  confirmMessage: (clientId: string, realMessage: Message) => void;
+  /** Помечает pending-сообщение как не доставленное */
+  failOptimisticMessage: (clientId: string) => void;
   updateMessage: (message: Message) => void;
   removeMessage: (messageId: string, chatId: string) => void;
   removeMessages: (messageIds: string[], chatId: string) => void;
@@ -54,16 +67,33 @@ export const useChatStore = create<ChatState>((set, get) => ({
   editingMessage: null,
   isLoadingChats: false,
   isLoadingMessages: false,
+  isLoadingMore: false,
+  hasMore: {},
   searchQuery: '',
   drafts: JSON.parse(localStorage.getItem('vortex_drafts') || '{}'),
+  scrollPositions: {},
 
-  setActiveChat: (chatId) => set((state) => ({
-    activeChat: chatId,
-    replyTo: null,
-    editingMessage: null,
-    chats: chatId
-      ? state.chats.map((c) => c.id === chatId ? { ...c, unreadCount: 0 } : c)
-      : state.chats,
+  setActiveChat: (chatId) => set((state) => {
+    // Trim messages from the previous active chat to save memory
+    const prevChatId = state.activeChat;
+    const messages = { ...state.messages };
+    if (prevChatId && prevChatId !== chatId && messages[prevChatId]?.length > 30) {
+      messages[prevChatId] = messages[prevChatId].slice(-30);
+    }
+
+    return {
+      activeChat: chatId,
+      replyTo: null,
+      editingMessage: null,
+      messages,
+      chats: chatId
+        ? state.chats.map((c) => c.id === chatId ? { ...c, unreadCount: 0 } : c)
+        : state.chats,
+    };
+  }),
+
+  saveScrollPosition: (chatId, scrollTop) => set((state) => ({
+    scrollPositions: { ...state.scrollPositions, [chatId]: scrollTop },
   })),
   setSearchQuery: (query) => set({ searchQuery: query }),
 
@@ -111,19 +141,28 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   loadMessages: async (chatId) => {
     try {
-      set({ isLoadingMessages: true });
-      const fetched = await api.getMessages(chatId);
+      const existing = get().messages[chatId] || [];
+      const isCached = existing.length > 0;
+
+      // If cached — don't show skeleton, fetch in background
+      if (!isCached) {
+        set({ isLoadingMessages: true });
+      }
+
+      const fetched = await api.getMessages(chatId, undefined, 30);
+      const hasMore = fetched.length >= 30;
+
       set((state) => {
-        // Merge fetched messages with any that arrived via socket during the fetch
-        const existing = state.messages[chatId] || [];
+        const cur = state.messages[chatId] || [];
         const fetchedIds = new Set(fetched.map(m => m.id));
-        const socketOnly = existing.filter(m => !fetchedIds.has(m.id));
+        const socketOnly = cur.filter(m => !fetchedIds.has(m.id));
         const merged = [...fetched, ...socketOnly].sort(
           (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
         );
         return {
           messages: { ...state.messages, [chatId]: merged },
-          isLoadingMessages: false,
+          hasMore: { ...state.hasMore, [chatId]: hasMore },
+          isLoadingMessages: isCached ? state.isLoadingMessages : false,
         };
       });
     } catch (error) {
@@ -132,38 +171,148 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }
   },
 
+  loadMoreMessages: async (chatId) => {
+    const state = get();
+    if (state.isLoadingMore || !state.hasMore[chatId]) return;
+
+    const chatMessages = state.messages[chatId] || [];
+    if (chatMessages.length === 0) return;
+
+    const oldestMessage = chatMessages[0];
+    const cursor = oldestMessage.createdAt;
+
+    try {
+      set({ isLoadingMore: true });
+      const fetched = await api.getMessages(chatId, cursor, 30);
+      const hasMore = fetched.length >= 30;
+
+      if (fetched.length === 0) {
+        set({ isLoadingMore: false, hasMore: { ...get().hasMore, [chatId]: false } });
+        return;
+      }
+
+      set((state) => {
+        const existing = state.messages[chatId] || [];
+        const fetchedIds = new Set(fetched.map(m => m.id));
+        const newOnly = fetched.filter(m => !existing.some(em => em.id === m.id));
+        const merged = [...newOnly, ...existing].sort(
+          (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+        );
+        return {
+          messages: { ...state.messages, [chatId]: merged },
+          hasMore: { ...state.hasMore, [chatId]: hasMore },
+          isLoadingMore: false,
+        };
+      });
+    } catch (error) {
+      console.error('Load more messages error:', error);
+      set({ isLoadingMore: false });
+    }
+  },
+
   addMessage: (message) => {
-    const userId = useAuthStore.getState().user?.id;
     set((state) => {
       const chatMessages = state.messages[message.chatId] || [];
       if (chatMessages.some((m) => m.id === message.id)) return state;
 
+      // For non-active chats, keep only the last MAX_MESSAGES_PER_CHAT messages
+      let updatedChatMessages: Message[];
+      if (message.chatId !== state.activeChat && chatMessages.length >= MAX_MESSAGES_PER_CHAT) {
+        updatedChatMessages = [...chatMessages.slice(-(MAX_MESSAGES_PER_CHAT - 1)), message];
+      } else {
+        updatedChatMessages = [...chatMessages, message];
+      }
+
       const updatedMessages = {
         ...state.messages,
-        [message.chatId]: [...chatMessages, message],
+        [message.chatId]: updatedChatMessages,
       };
 
-      const updatedChats = state.chats.map((chat) => {
-        if (chat.id === message.chatId) {
-          return {
-            ...chat,
-            messages: [message],
-            unreadCount: chat.id === state.activeChat ? chat.unreadCount : chat.unreadCount + 1,
-          };
-        }
-        return chat;
-      });
+      // Only update the affected chat — no sort of all chats
+      const chatIndex = state.chats.findIndex(c => c.id === message.chatId);
+      if (chatIndex === -1) return { messages: updatedMessages };
 
-      updatedChats.sort((a, b) => {
-        const aPin = a.members?.find((m) => m.user?.id === userId)?.isPinned ? 1 : 0;
-        const bPin = b.members?.find((m) => m.user?.id === userId)?.isPinned ? 1 : 0;
-        if (aPin !== bPin) return bPin - aPin;
-        const aTime = a.messages[0]?.createdAt || a.createdAt;
-        const bTime = b.messages[0]?.createdAt || b.createdAt;
-        return new Date(bTime).getTime() - new Date(aTime).getTime();
-      });
+      const chat = state.chats[chatIndex];
+      const updatedChat = {
+        ...chat,
+        messages: [message],
+        unreadCount: chat.id === state.activeChat ? chat.unreadCount : chat.unreadCount + 1,
+      };
 
-      return { messages: updatedMessages, chats: updatedChats };
+      // Move affected chat to top if it's not already there
+      const newChats = chatIndex === 0
+        ? state.chats.map(c => c.id === message.chatId ? updatedChat : c)
+        : [updatedChat, ...state.chats.filter(c => c.id !== message.chatId)];
+
+      return { messages: updatedMessages, chats: newChats };
+    });
+  },
+
+  /** Добавляет «локальное» сообщение, чтобы UI отреагировал мгновенно */
+  addOptimisticMessage: (message) => {
+    set((state) => {
+      const chatMessages = state.messages[message.chatId] || [];
+      // Защита от дублей (тот же clientId)
+      if (message.clientId && chatMessages.some((m) => m.clientId === message.clientId)) {
+        return state;
+      }
+      // For non-active chats, keep only the last MAX_MESSAGES_PER_CHAT messages
+      let updatedChatMessages: Message[];
+      if (message.chatId !== state.activeChat && chatMessages.length >= MAX_MESSAGES_PER_CHAT) {
+        updatedChatMessages = [...chatMessages.slice(-(MAX_MESSAGES_PER_CHAT - 1)), { ...message, pending: true }];
+      } else {
+        updatedChatMessages = [...chatMessages, { ...message, pending: true }];
+      }
+
+      const updatedMessages = {
+        ...state.messages,
+        [message.chatId]: updatedChatMessages,
+      };
+
+      const chatIndex = state.chats.findIndex(c => c.id === message.chatId);
+      if (chatIndex === -1) return { messages: updatedMessages };
+
+      const chat = state.chats[chatIndex];
+      const updatedChat = {
+        ...chat,
+        messages: [message],
+        unreadCount: chat.id === state.activeChat ? chat.unreadCount : chat.unreadCount,
+      };
+      const newChats = chatIndex === 0
+        ? state.chats.map(c => c.id === message.chatId ? updatedChat : c)
+        : [updatedChat, ...state.chats.filter(c => c.id !== message.chatId)];
+
+      return { messages: updatedMessages, chats: newChats };
+    });
+  },
+
+  /** Подтверждение сервером: заменяем pending на реальное сообщение */
+  confirmMessage: (clientId, realMessage) => {
+    set((state) => {
+      const chatMessages = state.messages[realMessage.chatId] || [];
+      // Если уже пришло реальное — игнорируем
+      if (chatMessages.some((m) => m.id === realMessage.id)) return state;
+
+      const updatedMessages = {
+        ...state.messages,
+        [realMessage.chatId]: chatMessages.map((m) =>
+          m.clientId === clientId ? { ...realMessage, pending: false, clientId } : m
+        ),
+      };
+      return { messages: updatedMessages };
+    });
+  },
+
+  /** Помечает сообщение как не доставленное (например, content warning) */
+  failOptimisticMessage: (clientId) => {
+    set((state) => {
+      const updatedMessages: Record<string, Message[]> = { ...state.messages };
+      for (const chatId of Object.keys(updatedMessages)) {
+        updatedMessages[chatId] = updatedMessages[chatId].map((m) =>
+          m.clientId === clientId ? { ...m, pending: false, failed: true } : m
+        );
+      }
+      return { messages: updatedMessages };
     });
   },
 
@@ -363,16 +512,21 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   updateUserOnlineStatus: (userId, isOnline, lastSeen) => {
-    set((state) => ({
-      chats: state.chats.map((chat) => ({
-        ...chat,
-        members: chat.members.map((m) =>
-          m.user.id === userId
-            ? { ...m, user: { ...m.user, isOnline, lastSeen: lastSeen || m.user.lastSeen } }
-            : m
-        ),
-      })),
-    }));
+    set((state) => {
+      const newChats = state.chats.map((chat) => {
+        const hasUser = chat.members.some(m => m.user.id === userId);
+        if (!hasUser) return chat;
+        return {
+          ...chat,
+          members: chat.members.map((m) =>
+            m.user.id === userId
+              ? { ...m, user: { ...m.user, isOnline, lastSeen: lastSeen || m.user.lastSeen } }
+              : m
+          ),
+        };
+      });
+      return { chats: newChats };
+    });
   },
 
   setReplyTo: (message) => set({ replyTo: message, editingMessage: null }),
@@ -435,6 +589,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
       typingUsers: [],
       replyTo: null,
       editingMessage: null,
+      hasMore: {},
+      isLoadingMore: false,
+      isLoadingMessages: false,
+      isLoadingChats: false,
+      searchQuery: '',
     });
   },
 }));

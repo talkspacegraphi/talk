@@ -1,10 +1,12 @@
-import { useEffect } from 'react';
+import { useEffect, Suspense, lazy } from 'react';
 import { AnimatePresence } from 'framer-motion';
 import { useAuthStore } from './stores/authStore';
 import { useThemeStore } from './stores/themeStore';
-import AuthPage from './pages/AuthPage';
-import ChatPage from './pages/ChatPage';
 import CustomTitleBar from './components/CustomTitleBar';
+import ErrorBoundary from './components/ErrorBoundary';
+
+const AuthPage = lazy(() => import('./pages/AuthPage'));
+const ChatPage = lazy(() => import('./pages/ChatPage'));
 
 export default function App() {
   const { token, user, checkAuth, isLoading } = useAuthStore();
@@ -18,16 +20,15 @@ export default function App() {
     document.body.className = `font-${appFont}`;
   }, [appFont]);
 
-  // Electron titlebar takes 32px (h-8). On desktop Electron, push content down.
-  // On mobile, never add any padding for titlebar.
   useEffect(() => {
-    const isElectron = !!(window as any).electronAPI;
-    const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
-    if (isElectron && !isMobile) {
-      document.body.style.paddingTop = '32px';
-    } else {
-      document.body.style.paddingTop = '0px';
-    }
+    const update = () => {
+      const isElectron = !!(window as any).electronAPI;
+      const isMobile = window.innerWidth < 768;
+      document.body.style.paddingTop = (isElectron && !isMobile) ? '32px' : '0px';
+    };
+    update();
+    window.addEventListener('resize', update);
+    return () => window.removeEventListener('resize', update);
   }, []);
 
   if (isLoading) {
@@ -42,16 +43,24 @@ export default function App() {
   }
 
   return (
-    <>
+    <ErrorBoundary>
       <CustomTitleBar />
-      <AnimatePresence mode="wait">
-        {token && user ? (
-          <ChatPage key="chat" />
-        ) : (
-          <AuthPage key="auth" />
-        )}
-      </AnimatePresence>
-    </>
+      <Suspense
+        fallback={
+          <div className="h-full flex items-center justify-center bg-surface">
+            <VortexLoader />
+          </div>
+        }
+      >
+        <AnimatePresence mode="wait">
+          {token && user ? (
+            <ChatPage key="chat" />
+          ) : (
+            <AuthPage key="auth" />
+          )}
+        </AnimatePresence>
+      </Suspense>
+    </ErrorBoundary>
   );
 }
 
