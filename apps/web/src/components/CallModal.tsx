@@ -315,9 +315,13 @@ export default function CallModal({ isOpen, onClose, targetUser, callType: initi
   }, []);
 
   // Toggle earpiece/speaker on mobile
-  const toggleEarpiece = useCallback(async () => {
+const toggleEarpiece = useCallback(async () => {
     const newMode = !isEarpieceMode;
     setIsEarpieceMode(newMode);
+    if (isAndroidWebView()) {
+      (window as any).Android?.setSpeakerOn?.(!newMode);
+      return;
+    }
     try {
       // Use setSinkId if available to switch audio output
       const audio = remoteAudioRef.current;
@@ -600,9 +604,11 @@ export default function CallModal({ isOpen, onClose, targetUser, callType: initi
   }, [onClose]);
 
   // End call (safe to call multiple times)
-  const endCallSafe = useCallback(() => {
+const endCallSafe = useCallback(() => {
     if (callEndedRef.current) return;
     callEndedRef.current = true;
+    callInProgressRef.current = false;
+    if (isAndroidWebView()) (window as any).Android?.onCallEnded?.();
     const socket = getSocket();
     socket?.emit('call_end', { targetUserId: targetUserIdRef.current });
     stopCallRingtone();
@@ -839,10 +845,9 @@ export default function CallModal({ isOpen, onClose, targetUser, callType: initi
       });
 
       setCallType(effectiveCallType);
-      setCallState('connected');
-      nativeCallLog(`acceptCall: CONNECTED! type=${effectiveCallType}`);
-      console.log('[acceptCall] Call connected, effectiveCallType:', effectiveCallType);
+setCallState('connected');
       timerRef.current = setInterval(() => setDuration((d) => d + 1), 1000);
+      if (isAndroidWebView()) (window as any).Android?.onCallStarted?.();
     } catch (err: any) {
       console.error('Error accepting call:', err);
       nativeCallLog(`acceptCall ERROR: ${err?.name} - ${err?.message}`);
@@ -1646,6 +1651,8 @@ export default function CallModal({ isOpen, onClose, targetUser, callType: initi
       iceCandidateBufferRef.current = [];
       setCallState('connected');
       timerRef.current = setInterval(() => setDuration((d) => d + 1), 1000);
+      // Notify Android: call started → switch to earpiece
+      if (isAndroidWebView()) (window as any).Android?.onCallStarted?.();
     };
 
     const onIceCandidate = (data: { from: string; candidate: RTCIceCandidateInit }) => {
