@@ -2123,8 +2123,6 @@ setCallState('connected');
               </div>
             </>
           )}
-        </div>
-      )}
 
       {/* === MINIMIZED VIEW === */}
       {isMinimized && callState === 'connected' ? (
@@ -2547,6 +2545,6 @@ setCallState('connected');
         onClose={() => setShowScreenSourcePicker(false)}
         onSelect={handleScreenSourceSelect}
       />
-    </>            ← закрытие корневого фрагмента
+    </>
   );
 }
