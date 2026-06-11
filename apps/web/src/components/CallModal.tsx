@@ -2121,8 +2121,10 @@ setCallState('connected');
               </div>
             </>
           )}
+        </div>
+      )}
 
-{isMinimized && callState === 'connected' ? (
+      {isMinimized && callState === 'connected' ? (
   <div
     key="call-minimized"
     className="call-modal-pop-in fixed bottom-6 right-6 z-[100] flex items-center gap-3 px-4 py-3 rounded-2xl glass-strong shadow-2xl shadow-black/50 border border-white/10 cursor-pointer select-none"
@@ -2542,7 +2544,6 @@ setCallState('connected');
         onClose={() => setShowScreenSourcePicker(false)}
         onSelect={handleScreenSourceSelect}
       />
-  )}
-    </div>
-  </>
-);
+    </>
+  );
+}
