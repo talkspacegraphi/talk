@@ -2172,11 +2172,10 @@ setCallState('connected');
       /* === FULL VIEW (desktop only) === */
       <div
         key="call-overlay"
-        className="call-modal-fade-in"
+        className={`call-modal-fade-in fixed inset-0 z-[100] flex items-center justify-center bg-surface/90 backdrop-blur-xl overflow-hidden`}
         role="dialog"
         aria-modal="true"
         aria-label="Call"
-        className="fixed inset-0 z-[100] flex items-center justify-center bg-surface/90 backdrop-blur-xl overflow-hidden"
         onClick={() => { setShowCameraMenu(false); setShowVolumeSlider(false); setShowMicMenu(false); }}
       >
         {/* Ambient background glow for call modal */}
