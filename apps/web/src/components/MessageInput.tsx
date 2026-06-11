@@ -1217,15 +1217,27 @@ export default memo(function MessageInput({ chatId, isBlocked, blockedByOther, o
             </button>
             <AnimatePresence>
               {showEmoji && (
-                <motion.div
-                  key="emoji-picker-portal"
-                  initial={{ opacity: 0, y: isMobile ? 40 : 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: isMobile ? 40 : 10 }}
-                  transition={{ type: 'spring', stiffness: 400, damping: 30 }}
-                  className={isMobile ? '' : `absolute ${emojiAbove ? 'bottom-[calc(100%+12px)]' : 'top-[calc(100%+12px)]'} right-0`}
-                  style={isMobile ? { position: 'fixed', left: 0, right: 0, bottom: 0, top: 'auto', zIndex: 9999 } as React.CSSProperties : undefined}
-                >
+                <>
+                  {isMobile && (
+                    <motion.div
+                      key="emoji-backdrop"
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      exit={{ opacity: 0 }}
+                      className="fixed inset-0 z-[9998]"
+                      onClick={() => setShowEmoji(false)}
+                      style={{ backgroundColor: 'rgba(0,0,0,0.3)' }}
+                    />
+                  )}
+                  <motion.div
+                    key="emoji-picker-portal"
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: 20 }}
+                    transition={{ type: 'spring', stiffness: 400, damping: 30 }}
+                    className={isMobile ? '' : `absolute ${emojiAbove ? 'bottom-[calc(100%+12px)]' : 'top-[calc(100%+12px)]'} right-0`}
+                    style={isMobile ? { position: 'fixed', left: 0, right: 0, bottom: '70px', top: 'auto', zIndex: 9999 } as React.CSSProperties : undefined}
+                  >
                 <Suspense fallback={<div className="w-80 h-96 bg-surface-secondary rounded-2xl animate-pulse" />}>
                   <EmojiPicker
                     onSelect={(emoji) => {
@@ -1279,6 +1291,7 @@ export default memo(function MessageInput({ chatId, isBlocked, blockedByOther, o
                   />
                 </Suspense>
               </motion.div>
+              </>
             )}
           </AnimatePresence>
           </div>

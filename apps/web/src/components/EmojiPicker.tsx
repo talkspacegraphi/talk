@@ -114,8 +114,8 @@ const EmojiPicker = memo(function EmojiPicker({ onSelect, onSelectGif, onClose }
 
   return (
     <div
-      className="rounded-2xl shadow-2xl border border-white/10 overflow-hidden"
-      style={{ width: tab === 'gif' ? 480 : 352, background: 'rgb(17, 17, 19)' }}
+      className="rounded-2xl shadow-2xl border border-white/10 overflow-hidden max-w-[calc(100vw-16px)]"
+      style={{ width: tab === 'gif' ? Math.min(480, window.innerWidth - 16) : Math.min(352, window.innerWidth - 16), background: 'rgb(17, 17, 19)', maxHeight: '60vh' }}
       onClick={(e) => e.stopPropagation()}
     >
       {/* Tabs */}
@@ -165,7 +165,7 @@ const EmojiPicker = memo(function EmojiPicker({ onSelect, onSelectGif, onClose }
           )}
 
           {/* Emoji grid */}
-          <div ref={scrollRef} className="overflow-y-auto" style={{ maxHeight: 320 }}>
+          <div ref={scrollRef} className="overflow-y-auto" style={{ maxHeight: 'min(320px, 50vh)' }}>
             {search.trim() ? (
               <div className="p-2">
                 <div className="grid grid-cols-9 gap-0.5">
