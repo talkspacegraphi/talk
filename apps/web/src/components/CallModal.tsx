@@ -2487,6 +2487,5 @@ setCallState('connected');
         onSelect={handleScreenSourceSelect}
       />
     </>
-    </>
   );
 }
