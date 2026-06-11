@@ -1627,6 +1627,23 @@ setCallState('connected');
     return () => document.removeEventListener('fullscreenchange', onFsChange);
   }, []);
 
+  // On call connect, explicitly ensure earpiece is ON on Android (once per call).
+  // Without this, speaker may be left on from a previous call.
+  // NOTE: this MUST be a top-level useEffect — nested inside another useEffect
+  // throws React error #321 (hooks cannot be called inside callbacks/effects).
+  useEffect(() => {
+    if (callState === 'connected' && !earpieceEnsuredRef.current) {
+      earpieceEnsuredRef.current = true;
+      if (isAndroidWebView()) {
+        (window as any).Android?.setSpeakerOn?.(false);
+      }
+      setIsEarpieceMode(true);
+    }
+    if (callState === 'idle' || callState === 'ended') {
+      earpieceEnsuredRef.current = false;
+    }
+  }, [callState]);
+
   // Socket event listeners
   useEffect(() => {
     const socket = getSocket();
@@ -1666,19 +1683,7 @@ setCallState('connected');
     };
 
     // On call connect, explicitly ensure earpiece is ON on Android (once per call).
-    // Without this, speaker may be left on from a previous call.
-    useEffect(() => {
-      if (callState === 'connected' && !earpieceEnsuredRef.current) {
-        earpieceEnsuredRef.current = true;
-        if (isAndroidWebView()) {
-          (window as any).Android?.setSpeakerOn?.(false);
-        }
-        setIsEarpieceMode(true);
-      }
-      if (callState === 'idle' || callState === 'ended') {
-        earpieceEnsuredRef.current = false;
-      }
-    }, [callState]);
+    // (useEffect moved to top-level above; cannot live inside another useEffect.)
 
     const onCallEnded = (data: { from: string }) => {
       nativeCallLog(`call_ended from=${data.from}`);
