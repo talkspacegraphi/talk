@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useCallback, memo, lazy, Suspense } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { isAndroidWebView } from '../lib/utils';
 import {
   Send,
   Paperclip,
@@ -485,7 +486,11 @@ export default memo(function MessageInput({ chatId, isBlocked, blockedByOther, o
   // Запись голосового
   const startRecording = async (lockImmediately = false) => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: isAndroidWebView()
+          ? { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
+          : true,
+      });
       streamRef.current = stream;
       // Use ogg/opus for better compatibility, fallback to webm
       const mimeType = MediaRecorder.isTypeSupported('audio/ogg;codecs=opus')
@@ -498,8 +503,8 @@ export default memo(function MessageInput({ chatId, isBlocked, blockedByOther, o
       mediaRecorderRef.current = recorder;
       chunksRef.current = [];
 
-      // Set up AnalyserNode for live waveform (skip in Electron - causes crashes)
-      if (!isElectron) {
+      // Set up AnalyserNode for live waveform (skip in Electron/Android WebView - causes crashes)
+      if (!isElectron && !isAndroidWebView()) {
         try {
           const actx = new AudioContext();
           const source = actx.createMediaStreamSource(stream);
@@ -581,8 +586,13 @@ export default memo(function MessageInput({ chatId, isBlocked, blockedByOther, o
       if (lockImmediately) {
         setIsRecordingLocked(true);
       }
-    } catch (e) {
+    } catch (e: any) {
       console.error('Ошибка записи:', e);
+      if (e?.name === 'NotAllowedError' || e?.name === 'NotFoundError') {
+        alert(isAndroidWebView()
+          ? 'Разрешите доступ к микрофону в настройках Android'
+          : 'Разрешите доступ к микрофону для записи голосовых');
+      }
     }
   };
 

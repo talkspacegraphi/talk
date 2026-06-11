@@ -62,8 +62,19 @@ async function getMediaWithCameraFallback(
     throw new Error('navigator.mediaDevices is not available. Calls require HTTPS or localhost.');
   }
   if (!wantVideo) {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
-    return { stream, hasVideo: false };
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+      return { stream, hasVideo: false };
+    } catch (e) {
+      // Android WebView may need a retry
+      if (isAndroidWebView()) {
+        console.warn('[getMedia] Audio-only failed, retrying for Android...');
+        await new Promise(r => setTimeout(r, 500));
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        return { stream, hasVideo: false };
+      }
+      throw e;
+    }
   }
 
   // 1) If we have a preferred camera, try it first
@@ -134,6 +145,11 @@ export default function CallModal({ isOpen, onClose, targetUser, callType: initi
   const [showSpeakerMenu, setShowSpeakerMenu] = useState(false);
   const [showScreenSourcePicker, setShowScreenSourcePicker] = useState(false);
 
+  // Mobile-specific state
+  const [isMobile, setIsMobile] = useState(() => typeof window !== 'undefined' && window.innerWidth <= 768);
+  const [isEarpieceMode, setIsEarpieceMode] = useState(true);
+  const [showNoAnswerScreen, setShowNoAnswerScreen] = useState(false);
+
   const peerRef = useRef<RTCPeerConnection | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
   const screenStreamRef = useRef<MediaStream | null>(null);
@@ -184,6 +200,82 @@ export default function CallModal({ isOpen, onClose, targetUser, callType: initi
     setPushToTalkEnabled(ptt);
     setPushToTalkKey(key);
   }, []);
+
+  // Mobile detection
+  useEffect(() => {
+    const check = () => setIsMobile(window.innerWidth <= 768);
+    window.addEventListener('resize', check);
+    return () => window.removeEventListener('resize', check);
+  }, []);
+
+  // Toggle earpiece/speaker on mobile
+  const toggleEarpiece = useCallback(async () => {
+    const newMode = !isEarpieceMode;
+    setIsEarpieceMode(newMode);
+    try {
+      // Use setSinkId if available to switch audio output
+      const audio = remoteAudioRef.current;
+      if (audio && 'setSinkId' in audio) {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const audioOutputs = devices.filter(d => d.kind === 'audiooutput');
+        if (newMode) {
+          // Earpiece — use default
+          await (audio as any).setSinkId('');
+        } else {
+          // Speaker — find speaker device
+          const speaker = audioOutputs.find(d => d.label.toLowerCase().includes('speaker') || d.label.toLowerCase().includes('динамик'));
+          if (speaker) await (audio as any).setSinkId(speaker.deviceId);
+        }
+      }
+    } catch (e) { console.warn('Speaker switch failed:', e); }
+    // Also adjust volume for earpiece mode
+    if (remoteAudioRef.current) {
+      remoteAudioRef.current.volume = newMode ? 0.6 : 1;
+    }
+  }, [isEarpieceMode]);
+
+  // Toggle camera on mobile (with permission request)
+  const toggleMobileCamera = useCallback(async () => {
+    if (callType === 'voice') {
+      // Upgrade to video call
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+        const videoTrack = stream.getVideoTracks()[0];
+        if (videoTrack && peerRef.current) {
+          const sender = peerRef.current.getSenders().find(s => s.track?.kind === 'video');
+          if (sender) {
+            await sender.replaceTrack(videoTrack);
+          } else {
+            peerRef.current.addTrack(videoTrack, localStreamRef.current!);
+          }
+          // Add local stream tracks if not already added
+          stream.getVideoTracks().forEach(track => {
+            localStreamRef.current?.addTrack(track);
+          });
+          setIsVideoOff(false);
+          setCallType('video');
+          // Renegotiate
+          const offer = await peerRef.current.createOffer();
+          await peerRef.current.setLocalDescription(offer);
+          getSocket()?.emit('renegotiate', { targetUserId: targetUserIdRef.current, offer: peerRef.current.localDescription });
+        }
+      } catch (e: any) {
+        if (e?.name === 'NotAllowedError') {
+          alert(isAndroidWebView()
+            ? 'Разрешите доступ к камере в настройках Android'
+            : 'Разрешите доступ к камере для видеозвонков');
+        }
+      }
+    } else {
+      // Toggle existing video
+      if (localStreamRef.current) {
+        const videoTracks = localStreamRef.current.getVideoTracks();
+        const newState = !isVideoOff;
+        videoTracks.forEach(t => { t.enabled = newState; });
+        setIsVideoOff(!newState);
+      }
+    }
+  }, [callType, isVideoOff]);
 
   // PTT key handlers
   useEffect(() => {
@@ -359,14 +451,16 @@ export default function CallModal({ isOpen, onClose, targetUser, callType: initi
         // eslint-disable-next-line @typescript-eslint/no-use-before-define
         endCallSafe();
       } else if (state === 'disconnected') {
-        // 'disconnected' is transient — give it 5 seconds to recover before ending
+        // 'disconnected' is transient — give it time to recover before ending
+        // Android WebView needs more time due to network layer instability
+        const gracePeriod = isAndroidWebView() ? 12000 : 5000;
         if (!disconnectTimeoutRef.current) {
           disconnectTimeoutRef.current = setTimeout(() => {
             disconnectTimeoutRef.current = null;
             if (!callEndedRef.current && pc.connectionState === 'disconnected') {
               endCallSafe();
             }
-          }, 5000);
+          }, gracePeriod);
         }
       } else if (state === 'connected') {
         // Clear any pending disconnect timeout — connection recovered
@@ -458,7 +552,8 @@ export default function CallModal({ isOpen, onClose, targetUser, callType: initi
         callType: effectiveCallType,
       });
 
-      // 15 second no-answer timeout
+      // No-answer timeout: 30s on mobile, 15s on desktop
+      const noAnswerDelay = isMobile ? 30000 : 15000;
       callTimeoutRef.current = setTimeout(async () => {
         if (callEndedRef.current) return;
         callEndedRef.current = true;
@@ -466,10 +561,15 @@ export default function CallModal({ isOpen, onClose, targetUser, callType: initi
         const s = getSocket();
         s?.emit('call_end', { targetUserId: targetUserIdRef.current });
         cleanup();
-        setCallState('ended');
-        await playUnavailableSound();
-        onClose();
-      }, 15000);
+        if (isMobile) {
+          setShowNoAnswerScreen(true);
+          setCallState('ended');
+        } else {
+          setCallState('ended');
+          await playUnavailableSound();
+          onClose();
+        }
+      }, noAnswerDelay);
     } catch (err: any) {
       console.error('Error starting call:', err);
       if (err?.name === 'NotAllowedError' || err?.name === 'NotFoundError') {
@@ -1551,6 +1651,212 @@ export default function CallModal({ isOpen, onClose, targetUser, callType: initi
     <AnimatePresence>
       <audio key="remote-audio" ref={remoteAudioRef} autoPlay playsInline />
 
+      {/* === MOBILE CALL UI === */}
+      {isMobile && !isMinimized && (callState === 'calling' || callState === 'connected' || callState === 'incoming' || showNoAnswerScreen) && (
+        <motion.div
+          key="mobile-call"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          className="fixed inset-0 z-[100] flex flex-col overflow-hidden"
+          style={{ background: isEarpieceMode && callState === 'connected'
+            ? 'linear-gradient(180deg, #0a0a0f 0%, #111118 50%, #0a0a0f 100%)'
+            : 'linear-gradient(180deg, #111118 0%, #1a1a2e 50%, #111118 100%)'
+          }}
+        >
+          {/* Hidden video elements */}
+          <video ref={remoteVideoRef} autoPlay playsInline muted className="hidden" />
+          <video ref={localVideoRef} autoPlay playsInline muted className="hidden" />
+
+          {/* Top bar */}
+          <div className="flex items-center justify-between px-4 pt-12 pb-4 z-10">
+            <button
+              onClick={() => setIsMinimized(true)}
+              className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center text-white/70"
+            >
+              <Minus size={20} />
+            </button>
+            <div className="text-center">
+              <p className="text-sm text-white font-medium">{displayName}</p>
+              <p className="text-xs text-zinc-400 font-mono">
+                {showNoAnswerScreen ? 'Не удалось дозвониться' :
+                 callState === 'calling' ? 'Вызов...' :
+                 callState === 'connected' ? formatDuration(duration) :
+                 callState === 'incoming' ? 'Входящий звонок' : ''}
+              </p>
+            </div>
+            <div className="w-10" />
+          </div>
+
+          {/* No-answer screen */}
+          {showNoAnswerScreen ? (
+            <div className="flex-1 flex flex-col items-center justify-center px-8">
+              <div className="mb-8">
+                {displayAvatar ? (
+                  <img src={displayAvatar} alt="" className="w-28 h-28 rounded-full object-cover opacity-50" />
+                ) : (
+                  <div className="w-28 h-28 rounded-full bg-gradient-to-br from-vortex-500/50 to-purple-600/50 flex items-center justify-center text-white font-bold text-3xl">
+                    {initials}
+                  </div>
+                )}
+              </div>
+              <h3 className="text-xl font-bold text-white mb-2">{displayName}</h3>
+              <p className="text-sm text-zinc-400 mb-12">Не удалось дозвониться</p>
+              {/* 3 buttons */}
+              <div className="flex items-center gap-6">
+                <button
+                  onClick={() => { setShowNoAnswerScreen(false); onClose(); }}
+                  className="flex flex-col items-center gap-2"
+                >
+                  <div className="w-14 h-14 rounded-full bg-white/10 flex items-center justify-center text-white">
+                    <X size={22} />
+                  </div>
+                  <span className="text-xs text-zinc-400">Закрыть</span>
+                </button>
+                <button
+                  onClick={() => {
+                    setShowNoAnswerScreen(false);
+                    onClose();
+                    // Open chat with this user
+                    window.dispatchEvent(new CustomEvent('vortex:open-chat', { detail: { userId: targetUser?.id } }));
+                  }}
+                  className="flex flex-col items-center gap-2"
+                >
+                  <div className="w-14 h-14 rounded-full bg-vortex-500/20 flex items-center justify-center text-vortex-400">
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+                  </div>
+                  <span className="text-xs text-zinc-400">Написать</span>
+                </button>
+                <button
+                  onClick={() => {
+                    setShowNoAnswerScreen(false);
+                    // Re-initiate call
+                    callEndedRef.current = false;
+                    setCallState('idle');
+                    setTimeout(() => {
+                      setCallState('calling');
+                    }, 100);
+                  }}
+                  className="flex flex-col items-center gap-2"
+                >
+                  <div className="w-14 h-14 rounded-full bg-emerald-500/20 flex items-center justify-center text-emerald-400">
+                    <Phone size={22} />
+                  </div>
+                  <span className="text-xs text-zinc-400">Перезвонить</span>
+                </button>
+              </div>
+            </div>
+          ) : (
+            /* Normal call view */
+            <div className="flex-1 flex flex-col items-center justify-center px-8">
+              {/* Avatar */}
+              <div className="relative mb-8">
+                {(callState === 'calling' || callState === 'connected') && (
+                  <>
+                    <div className="absolute inset-0 rounded-full bg-vortex-500/30 animate-call-wave" />
+                    <div className="absolute inset-0 rounded-full bg-vortex-500/20 animate-call-wave-delayed" />
+                  </>
+                )}
+                {callState === 'incoming' && (
+                  <>
+                    <div className="absolute inset-0 rounded-full bg-emerald-500/30 animate-call-wave" />
+                    <div className="absolute inset-0 rounded-full bg-emerald-500/20 animate-call-wave-delayed" />
+                  </>
+                )}
+                <div className="relative z-10 p-1.5 rounded-full bg-gradient-to-br from-white/10 to-transparent border border-white/10 shadow-2xl">
+                  {displayAvatar ? (
+                    <img src={displayAvatar} alt="" className="w-32 h-32 rounded-full object-cover" />
+                  ) : (
+                    <div className="w-32 h-32 rounded-full bg-gradient-to-br from-vortex-500 to-purple-600 flex items-center justify-center text-white font-bold text-4xl">
+                      {initials}
+                    </div>
+                  )}
+                </div>
+              </div>
+              <h3 className="text-2xl font-bold text-white mb-2">{displayName}</h3>
+              <p className="text-sm text-zinc-400">
+                {callState === 'calling' && 'Вызов...'}
+                {callState === 'connected' && formatDuration(duration)}
+                {callState === 'incoming' && (callType === 'video' ? 'Видеозвонок' : 'Звонок')}
+              </p>
+            </div>
+          )}
+
+          {/* Bottom controls */}
+          {!showNoAnswerScreen && (
+            <div className="pb-12 px-6 z-10">
+              {callState === 'incoming' ? (
+                /* Incoming call: decline + accept */
+                <div className="flex items-center justify-center gap-8">
+                  <button
+                    onClick={declineCall}
+                    className="flex flex-col items-center gap-2"
+                  >
+                    <div className="w-16 h-16 rounded-full bg-red-500 flex items-center justify-center text-white shadow-xl shadow-red-500/30">
+                      <PhoneOff size={24} />
+                    </div>
+                    <span className="text-xs text-zinc-400">Отклонить</span>
+                  </button>
+                  <button
+                    onClick={acceptCall}
+                    className="flex flex-col items-center gap-2"
+                  >
+                    <div className="w-16 h-16 rounded-full bg-emerald-500 flex items-center justify-center text-white shadow-xl shadow-emerald-500/30 animate-pulse">
+                      <Phone size={24} className="animate-bounce" />
+                    </div>
+                    <span className="text-xs text-zinc-400">Принять</span>
+                  </button>
+                </div>
+              ) : callState === 'connected' ? (
+                /* Connected: 4 buttons in oval */
+                <div className="flex items-center justify-center">
+                  <div className="flex items-center gap-4 bg-white/10 rounded-full px-6 py-3 backdrop-blur-sm border border-white/5">
+                    {/* Speaker */}
+                    <button
+                      onClick={toggleEarpiece}
+                      className={`w-12 h-12 rounded-full flex items-center justify-center transition-all ${!isEarpieceMode ? 'bg-vortex-500 text-white shadow-lg shadow-vortex-500/30' : 'bg-white/10 text-white/70'}`}
+                    >
+                      <Volume2 size={20} />
+                    </button>
+                    {/* Mic */}
+                    <button
+                      onClick={toggleMic}
+                      className={`w-12 h-12 rounded-full flex items-center justify-center transition-all ${isMuted ? 'bg-red-500 text-white shadow-lg shadow-red-500/30' : 'bg-white/10 text-white/70'}`}
+                    >
+                      {isMuted ? <MicOff size={20} /> : <Mic size={20} />}
+                    </button>
+                    {/* Camera */}
+                    <button
+                      onClick={toggleMobileCamera}
+                      className={`w-12 h-12 rounded-full flex items-center justify-center transition-all ${(!isVideoOff && callType === 'video') ? 'bg-vortex-500 text-white shadow-lg shadow-vortex-500/30' : 'bg-white/10 text-white/70'}`}
+                    >
+                      {(!isVideoOff && callType === 'video') ? <Video size={20} /> : <VideoOff size={20} />}
+                    </button>
+                    {/* End call */}
+                    <button
+                      onClick={endCallSafe}
+                      className="w-12 h-12 rounded-full bg-red-500 flex items-center justify-center text-white shadow-lg shadow-red-500/30"
+                    >
+                      <PhoneOff size={20} />
+                    </button>
+                  </div>
+                </div>
+              ) : callState === 'calling' ? (
+                /* Calling: end call only */
+                <div className="flex justify-center">
+                  <button
+                    onClick={endCallSafe}
+                    className="w-16 h-16 rounded-full bg-red-500 flex items-center justify-center text-white shadow-xl shadow-red-500/30"
+                  >
+                    <PhoneOff size={24} />
+                  </button>
+                </div>
+              ) : null}
+            </div>
+          )}
+        </motion.div>
+      )}
+
       {/* === MINIMIZED VIEW === */}
       {isMinimized && callState === 'connected' ? (
         <motion.div
@@ -1595,9 +1901,9 @@ export default function CallModal({ isOpen, onClose, targetUser, callType: initi
           <video ref={remoteVideoRef} autoPlay playsInline muted className="hidden" />
           <video ref={localVideoRef} autoPlay playsInline muted className="hidden" />
         </motion.div>
-      ) : (
+      ) : (!isMobile || callState === 'idle') && (
 
-      /* === FULL VIEW === */
+      /* === FULL VIEW (desktop only) === */
       <motion.div
         key="call-overlay"
         initial={{ opacity: 0 }}
