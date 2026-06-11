@@ -2551,4 +2551,3 @@ setCallState('connected');
     </div>
   </>
 );
-}
