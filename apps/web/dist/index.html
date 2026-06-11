@@ -14,7 +14,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
-    <script type="module" crossorigin src="/assets/index-Dym8TD6e.js"></script>
+    <script type="module" crossorigin src="/assets/index-CcRbG9Vg.js"></script>
     <link rel="modulepreload" crossorigin href="/assets/motion-V1bEmcUv.js">
     <link rel="modulepreload" crossorigin href="/assets/virtual-DyyWDVY4.js">
     <link rel="modulepreload" crossorigin href="/assets/react-vendor-CghMrV6N.js">
@@ -26,9 +26,21 @@
   <body>
     <div id="root"></div>
     <script>
+      // Global error handlers — send to native log overlay
+      window.addEventListener('error', function(e) {
+        var msg = 'UNCAUGHT: ' + (e.message || e.error?.message || 'unknown') + ' at ' + (e.filename || '') + ':' + (e.lineno || '');
+        console.error(msg);
+        try { window.AndroidLog?.log('CRASH', msg); } catch(ex) {}
+      });
+      window.addEventListener('unhandledrejection', function(e) {
+        var reason = e.reason;
+        var msg = 'UNHANDLED_PROMISE: ' + (reason?.message || reason?.name || String(reason));
+        console.error(msg);
+        try { window.AndroidLog?.log('CRASH', msg); } catch(ex) {}
+      });
       if ('serviceWorker' in navigator) {
-        window.addEventListener('load', () => {
-          navigator.serviceWorker.register('/sw.js').catch(() => {});
+        window.addEventListener('load', function() {
+          navigator.serviceWorker.register('/sw.js').catch(function() {});
         });
       }
     </script>

@@ -416,6 +416,7 @@ export default function CallModal({ isOpen, onClose, targetUser, callType: initi
       console.log('[ontrack] Received track:', e.track.kind, 'readyState:', e.track.readyState,
         'enabled:', e.track.enabled, 'streams:', e.streams.length,
         'muted:', e.track.muted);
+      nativeCallLog(`ontrack: kind=${e.track.kind} state=${e.track.readyState} enabled=${e.track.enabled} muted=${e.track.muted}`);
       // Always merge new tracks into the existing remote stream to avoid losing
       // audio when a video-only screen share track arrives on a separate stream.
       let stream: MediaStream;
@@ -711,8 +712,10 @@ export default function CallModal({ isOpen, onClose, targetUser, callType: initi
           senderTrack: t.sender?.track?.kind ?? null,
           receiverTrack: t.receiver?.track?.kind ?? null,
         })));
+      nativeCallLog(`acceptCall: transceivers=${pc.getTransceivers().length} pcState=${pc.connectionState}`);
 
       if (callEndedRef.current) {
+        nativeCallLog('acceptCall: ABORTED (callEndedRef=true)');
         pc.onconnectionstatechange = null;
         pc.close();
         peerRef.current = null;
@@ -727,8 +730,11 @@ export default function CallModal({ isOpen, onClose, targetUser, callType: initi
       }
       iceCandidateBufferRef.current = [];
 
+      nativeCallLog('acceptCall: createAnswer...');
       const answer = await pc.createAnswer();
+      nativeCallLog('acceptCall: setLocalDescription...');
       await pc.setLocalDescription(answer);
+      nativeCallLog('acceptCall: answer sent OK');
 
       console.log('[acceptCall] Answer created, transceivers:',
         pc.getTransceivers().map(t => ({
@@ -748,6 +754,7 @@ export default function CallModal({ isOpen, onClose, targetUser, callType: initi
       }
 
       const socket = getSocket();
+      nativeCallLog(`acceptCall: emitting call_answer to ${incoming.from}`);
       socket?.emit('call_answer', {
         targetUserId: incoming.from,
         answer: pc.localDescription,
@@ -755,6 +762,7 @@ export default function CallModal({ isOpen, onClose, targetUser, callType: initi
 
       setCallType(effectiveCallType);
       setCallState('connected');
+      nativeCallLog(`acceptCall: CONNECTED! type=${effectiveCallType}`);
       console.log('[acceptCall] Call connected, effectiveCallType:', effectiveCallType);
       timerRef.current = setInterval(() => setDuration((d) => d + 1), 1000);
     } catch (err: any) {

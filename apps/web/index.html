@@ -19,9 +19,21 @@
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
     <script>
+      // Global error handlers — send to native log overlay
+      window.addEventListener('error', function(e) {
+        var msg = 'UNCAUGHT: ' + (e.message || e.error?.message || 'unknown') + ' at ' + (e.filename || '') + ':' + (e.lineno || '');
+        console.error(msg);
+        try { window.AndroidLog?.log('CRASH', msg); } catch(ex) {}
+      });
+      window.addEventListener('unhandledrejection', function(e) {
+        var reason = e.reason;
+        var msg = 'UNHANDLED_PROMISE: ' + (reason?.message || reason?.name || String(reason));
+        console.error(msg);
+        try { window.AndroidLog?.log('CRASH', msg); } catch(ex) {}
+      });
       if ('serviceWorker' in navigator) {
-        window.addEventListener('load', () => {
-          navigator.serviceWorker.register('/sw.js').catch(() => {});
+        window.addEventListener('load', function() {
+          navigator.serviceWorker.register('/sw.js').catch(function() {});
         });
       }
     </script>
