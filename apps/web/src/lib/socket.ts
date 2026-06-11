@@ -15,9 +15,10 @@ export function connectSocket(token: string): Socket {
 
   const isElectron = typeof window !== 'undefined' && !!(window as any).electronAPI;
   const isDev = import.meta.env.DEV;
+  const isLocalServer = isElectron && !window.location.protocol.startsWith('http') || window.location.origin === 'http://localhost:3001';
   const socketUrl = isDev && !isElectron
     ? window.location.origin
-    : isElectron
+    : isElectron && window.location.origin.includes('localhost')
       ? 'http://localhost:3001'
       : window.location.origin;
 
