@@ -12,6 +12,22 @@ export function isAndroidWebView(): boolean {
   return /VortexApp/i.test(ua) || (/Android/i.test(ua) && /wv|WebView/i.test(ua));
 }
 
+/** Send log to native Android overlay (visible in APK) */
+export function nativeLog(tag: string, msg: string) {
+  try {
+    const androidLog = (window as any)?.AndroidLog;
+    if (androidLog?.log) androidLog.log(tag, msg);
+  } catch {}
+}
+
+/** Send call event to native Android overlay */
+export function nativeCallLog(event: string) {
+  try {
+    const androidLog = (window as any)?.AndroidLog;
+    if (androidLog?.logCallEvent) androidLog.logCallEvent(event);
+  } catch {}
+}
+
 export function formatTime(date: string | Date, lang: string = 'ru'): string {
   const d = new Date(date);
   return d.toLocaleTimeString(lang === 'ru' ? 'ru-RU' : 'en-US', { hour: '2-digit', minute: '2-digit' });

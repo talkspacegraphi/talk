@@ -6,7 +6,7 @@ import { api } from '../lib/api';
 import { useLang } from '../lib/i18n';
 import { playCallRingtone, stopCallRingtone, playUnavailableSound } from '../lib/sounds';
 import ScreenSourcePicker from './ScreenSourcePicker';
-import { isAndroidWebView } from '../lib/utils';
+import { isAndroidWebView, nativeCallLog } from '../lib/utils';
 
 type CallState = 'idle' | 'calling' | 'incoming' | 'connected' | 'ended';
 
@@ -77,10 +77,13 @@ async function getMediaWithCameraFallback(
   const tryWithRetries = async (constraints: MediaStreamConstraints, maxRetries = 10): Promise<MediaStream> => {
     for (let attempt = 0; attempt < maxRetries; attempt++) {
       try {
-        return await navigator.mediaDevices.getUserMedia(constraints);
+        const stream = await navigator.mediaDevices.getUserMedia(constraints);
+        nativeCallLog(`getUserMedia OK on attempt ${attempt + 1}`);
+        return stream;
       } catch (e: any) {
         const isLast = attempt === maxRetries - 1;
         const isPermError = e?.name === 'NotAllowedError' || e?.name === 'NotFoundError';
+        nativeCallLog(`getUserMedia attempt ${attempt + 1} FAILED: ${e?.name} - ${e?.message}`);
         if (isAndroidWebView() && isPermError && !isLast) {
           console.log(`[getMedia] Attempt ${attempt + 1} failed (${e?.name}), retrying in 1s...`);
           await new Promise(r => setTimeout(r, 1000));
@@ -482,6 +485,7 @@ export default function CallModal({ isOpen, onClose, targetUser, callType: initi
     pc.onconnectionstatechange = () => {
       if (callEndedRef.current) return;
       const state = pc.connectionState;
+      nativeCallLog(`PC state: ${state}`);
       if (state === 'failed') {
         // eslint-disable-next-line @typescript-eslint/no-use-before-define
         endCallSafe();
@@ -531,15 +535,18 @@ export default function CallModal({ isOpen, onClose, targetUser, callType: initi
   // Start outgoing call
   const startCall = useCallback(async () => {
     if (!targetUser) return;
-    if (callInProgressRef.current) return;
+    if (callInProgressRef.current) { nativeCallLog('startCall BLOCKED (already in progress)'); return; }
     callInProgressRef.current = true;
     targetUserIdRef.current = targetUser.id;
     callEndedRef.current = false;
     setCallState('calling');
+    nativeCallLog(`startCall: target=${targetUser.id} type=${callType}`);
 
     try {
       console.log('[startCall] Getting media, wantVideo:', callType === 'video');
+      nativeCallLog('startCall: requesting getUserMedia...');
       const { stream, hasVideo } = await getMediaWithCameraFallback(callType === 'video');
+      nativeCallLog(`startCall: getUserMedia OK audio=${stream.getAudioTracks().length} video=${stream.getVideoTracks().length} hasVideo=${hasVideo}`);
       console.log('[startCall] Got media — hasVideo:', hasVideo,
         'audioTracks:', stream.getAudioTracks().length,
         'videoTracks:', stream.getVideoTracks().length);
@@ -565,6 +572,7 @@ export default function CallModal({ isOpen, onClose, targetUser, callType: initi
       refreshAllDevices();
 
       const iceConfig = await getIceServers();
+      nativeCallLog(`startCall: ICE servers count=${iceConfig.iceServers?.length}`);
       const pc = new RTCPeerConnection(iceConfig);
       peerRef.current = pc;
 
@@ -609,6 +617,7 @@ export default function CallModal({ isOpen, onClose, targetUser, callType: initi
       }, noAnswerDelay);
     } catch (err: any) {
       console.error('Error starting call:', err);
+      nativeCallLog(`startCall ERROR: ${err?.name} - ${err?.message}`);
       callInProgressRef.current = false;
       if (err?.name === 'NotAllowedError' || err?.name === 'NotFoundError') {
         alert(isAndroidWebView()
@@ -626,15 +635,18 @@ export default function CallModal({ isOpen, onClose, targetUser, callType: initi
   // Accept incoming call
   const acceptCall = useCallback(async () => {
     if (!incoming) return;
-    if (callInProgressRef.current) return;
+    if (callInProgressRef.current) { nativeCallLog('acceptCall BLOCKED (already in progress)'); return; }
     callInProgressRef.current = true;
     targetUserIdRef.current = incoming.from;
     callEndedRef.current = false;
     stopCallRingtone();
+    nativeCallLog(`acceptCall: from=${incoming.from} type=${incoming.callType}`);
 
     try {
       console.log('[acceptCall] Getting media, wantVideo:', incoming.callType === 'video');
+      nativeCallLog('acceptCall: requesting getUserMedia...');
       const { stream, hasVideo } = await getMediaWithCameraFallback(incoming.callType === 'video');
+      nativeCallLog(`acceptCall: getUserMedia OK audio=${stream.getAudioTracks().length} video=${stream.getVideoTracks().length}`);
       console.log('[acceptCall] Got media — hasVideo:', hasVideo,
         'audioTracks:', stream.getAudioTracks().length,
         'videoTracks:', stream.getVideoTracks().length,
@@ -660,6 +672,7 @@ export default function CallModal({ isOpen, onClose, targetUser, callType: initi
       refreshMicrophones();
 
       const iceConfig = await getIceServers();
+      nativeCallLog(`acceptCall: ICE servers count=${iceConfig.iceServers?.length}`);
       const pc = new RTCPeerConnection(iceConfig);
       peerRef.current = pc;
 
@@ -668,7 +681,9 @@ export default function CallModal({ isOpen, onClose, targetUser, callType: initi
 
       // Standard answerer pattern: set remote description FIRST
       // This creates transceivers from the offer's m-lines
+      nativeCallLog('acceptCall: setRemoteDescription...');
       await pc.setRemoteDescription(new RTCSessionDescription(incoming.offer));
+      nativeCallLog('acceptCall: setRemoteDescription OK');
 
       // Now add local tracks — they reuse the transceivers created from the offer,
       // changing direction from recvonly to sendrecv
@@ -744,6 +759,7 @@ export default function CallModal({ isOpen, onClose, targetUser, callType: initi
       timerRef.current = setInterval(() => setDuration((d) => d + 1), 1000);
     } catch (err: any) {
       console.error('Error accepting call:', err);
+      nativeCallLog(`acceptCall ERROR: ${err?.name} - ${err?.message}`);
       callInProgressRef.current = false;
       if (err?.name === 'NotAllowedError' || err?.name === 'NotFoundError') {
         alert(isAndroidWebView()
@@ -1525,6 +1541,7 @@ export default function CallModal({ isOpen, onClose, targetUser, callType: initi
 
     const onCallAnswered = async (data: { from: string; answer: RTCSessionDescriptionInit }) => {
       if (!peerRef.current || data.from !== targetUserIdRef.current) return;
+      nativeCallLog(`call_answered from=${data.from}`);
       if (callTimeoutRef.current) clearTimeout(callTimeoutRef.current);
       stopCallRingtone();
       console.log('[onCallAnswered] Setting remote description (answer)');
@@ -1554,6 +1571,7 @@ export default function CallModal({ isOpen, onClose, targetUser, callType: initi
     };
 
     const onCallEnded = (data: { from: string }) => {
+      nativeCallLog(`call_ended from=${data.from}`);
       if (callEndedRef.current) return;
       if (data.from !== targetUserIdRef.current) return;
       callEndedRef.current = true;
