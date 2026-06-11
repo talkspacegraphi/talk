@@ -8,6 +8,14 @@ import { playCallRingtone, stopCallRingtone, playUnavailableSound } from '../lib
 import ScreenSourcePicker from './ScreenSourcePicker';
 import { isAndroidWebView, nativeCallLog } from '../lib/utils';
 
+// Android WebView bridge — implemented in native Android code
+declare global {
+  interface Window {
+    Android?: {
+      releaseMicrophone?: () => void; // kills processes holding mic, optional
+    };
+  }
+}
 type CallState = 'idle' | 'calling' | 'incoming' | 'connected' | 'ended';
 
 interface CallModalProps {
@@ -65,6 +73,31 @@ async function getIceServers(): Promise<RTCConfiguration> {
 
 // Try to get video+audio, falling back to audio-only
 // If preferDeviceId is given, try that camera first
+// Release microphone by sending a native signal (Android WebView) or
+// by stopping any MediaStream tracks we can enumerate
+async function releaseMicrophoneForAndroid(): Promise<void> {
+  nativeCallLog('releaseMicrophone: attempting to free mic...');
+  // 1) Signal Android native layer to kill processes holding the mic
+  if (isAndroidWebView() && (window as any).Android?.releaseMicrophone) {
+    try {
+      (window as any).Android.releaseMicrophone();
+      nativeCallLog('releaseMicrophone: native releaseMicrophone() called');
+      await new Promise(r => setTimeout(r, 800));
+    } catch (e) {
+      nativeCallLog(`releaseMicrophone: native call failed: ${e}`);
+    }
+  }
+  // 2) Try to grab-and-release to flush the device (sometimes unblocks it)
+  try {
+    const probe = await navigator.mediaDevices.getUserMedia({ audio: true });
+    probe.getTracks().forEach(t => t.stop());
+    nativeCallLog('releaseMicrophone: probe grab-release OK');
+    await new Promise(r => setTimeout(r, 400));
+  } catch {
+    nativeCallLog('releaseMicrophone: probe failed (device still busy)');
+    await new Promise(r => setTimeout(r, 1500));
+  }
+}
 async function getMediaWithCameraFallback(
   wantVideo: boolean,
   preferDeviceId?: string
@@ -73,8 +106,31 @@ async function getMediaWithCameraFallback(
     throw new Error('navigator.mediaDevices is not available. Calls require HTTPS or localhost.');
   }
 
-  // Helper: try getUserMedia with retries on Android (permission dialog takes time, device may be busy)
-  const tryWithRetries = async (constraints: MediaStreamConstraints, maxRetries = 15): Promise<MediaStream> => {
+  // Kill ALL active media tracks to free the microphone
+  const killAllTracks = async () => {
+    // Stop local call streams
+    if (localStreamRef.current) {
+      localStreamRef.current.getTracks().forEach(t => { t.stop(); t.enabled = false; });
+      nativeCallLog(`Killed localStream: ${localStreamRef.current.getTracks().length} tracks`);
+    }
+    // Stop noise gate tracks
+    if (noiseGateTrackRef.current) {
+      noiseGateTrackRef.current.stop();
+      nativeCallLog('Killed noiseGate track');
+    }
+    if (noiseGateCtxRef.current) {
+      noiseGateCtxRef.current.close().catch(() => {});
+    }
+    // Force release by re-acquiring and immediately stopping
+    try {
+      const tempStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      tempStream.getTracks().forEach(t => t.stop());
+      nativeCallLog(`Force-released ${tempStream.getTracks().length} temp tracks`);
+    } catch {}
+  };
+
+  // Helper: try getUserMedia with retries on Android
+const tryWithRetries = async (constraints: MediaStreamConstraints, maxRetries = 20): Promise<MediaStream> => {
     for (let attempt = 0; attempt < maxRetries; attempt++) {
       try {
         const stream = await navigator.mediaDevices.getUserMedia(constraints);
@@ -84,27 +140,31 @@ async function getMediaWithCameraFallback(
         const isLast = attempt === maxRetries - 1;
         const isPermError = e?.name === 'NotAllowedError' || e?.name === 'NotFoundError';
         const isNotReadable = e?.name === 'NotReadableError';
+        const isAbort = e?.name === 'AbortError';
         nativeCallLog(`getUserMedia attempt ${attempt + 1} FAILED: ${e?.name} - ${e?.message}`);
 
-        if (isAndroidWebView() && (isPermError || isNotReadable) && !isLast) {
-          // NotReadableError = device busy, needs longer wait
-          // NotAllowedError = permission dialog still open
-          const delay = isNotReadable ? 2000 : 1000;
-          console.log(`[getMedia] Attempt ${attempt + 1} failed (${e?.name}), retrying in ${delay}ms...`);
-          await new Promise(r => setTimeout(r, delay));
-
-          // On NotReadableError, try to release any existing streams first
-          if (isNotReadable && attempt > 0) {
-            nativeCallLog(`getUserMedia: device busy, trying minimal constraints...`);
-            try {
-              const minimalStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-              // Got it! Stop and retry with full constraints
-              minimalStream.getTracks().forEach(t => t.stop());
-              await new Promise(r => setTimeout(r, 500));
-            } catch {
-              // Still busy, continue retry loop
-            }
+        if (isAndroidWebView() && (isPermError || isNotReadable || isAbort) && !isLast) {
+          // On first NotReadableError/AbortError — aggressively release the mic
+          if ((isNotReadable || isAbort) && attempt === 0) {
+            nativeCallLog('getUserMedia: mic busy on first attempt, running releaseMicrophoneForAndroid...');
+            await releaseMicrophoneForAndroid();
+            continue;
           }
+          // On subsequent NotReadableError — escalating wait + release
+          if (isNotReadable || isAbort) {
+            const delay = Math.min(1000 * (attempt + 1), 4000);
+            nativeCallLog(`getUserMedia: mic busy (attempt ${attempt + 1}), waiting ${delay}ms...`);
+            await new Promise(r => setTimeout(r, delay));
+            // Every 3 attempts, try release again
+            if (attempt % 3 === 0) {
+              await releaseMicrophoneForAndroid();
+            }
+            continue;
+          }
+          // Permission error — wait for dialog
+          const delay = 1000;
+          nativeCallLog(`getUserMedia: permission error (attempt ${attempt + 1}), waiting ${delay}ms...`);
+          await new Promise(r => setTimeout(r, delay));
           continue;
         }
         throw e;
@@ -114,18 +174,6 @@ async function getMediaWithCameraFallback(
   };
 
   if (!wantVideo) {
-    // On Android, try minimal constraints first to avoid NotReadableError
-    if (isAndroidWebView()) {
-      try {
-        nativeCallLog('getUserMedia: trying minimal audio constraints first...');
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        nativeCallLog('getUserMedia: minimal audio OK, stopping and retrying with full constraints');
-        stream.getTracks().forEach(t => t.stop());
-        await new Promise(r => setTimeout(r, 300));
-      } catch {
-        nativeCallLog('getUserMedia: minimal audio failed, will retry with retries');
-      }
-    }
     const stream = await tryWithRetries({
       audio: isAndroidWebView()
         ? { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
