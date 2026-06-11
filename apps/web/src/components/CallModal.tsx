@@ -1686,163 +1686,228 @@ export default function CallModal({ isOpen, onClose, targetUser, callType: initi
           <video ref={remoteVideoRef} autoPlay playsInline muted className="hidden" />
           <video ref={localVideoRef} autoPlay playsInline muted className="hidden" />
 
-          {/* Top bar — only minimize during active call, NOT on no-answer screen */}
-          {!showNoAnswerScreen && (
-            <div className="flex items-center justify-between px-4 pt-12 pb-2 z-10">
-              <button
-                onClick={() => setIsMinimized(true)}
-                className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center text-white/70"
-              >
-                <Minus size={20} />
-              </button>
-              <div className="w-10" />
-            </div>
-          )}
-
-          {/* Name + status — ONLY text area */}
-          <div className="text-center pt-2 pb-4 z-10">
-            <p className="text-lg font-bold text-white mb-1">{displayName}</p>
-            <p className="text-sm text-zinc-400 font-mono">
-              {showNoAnswerScreen ? 'Не удалось дозвониться' :
-               callState === 'calling' ? 'Вызов...' :
-               callState === 'connected' ? formatDuration(duration) :
-               callState === 'incoming' ? (callType === 'video' ? 'Видеозвонок' : 'Звонок') : ''}
-            </p>
-          </div>
-
-          {/* No-answer screen */}
-          {showNoAnswerScreen ? (
-            <div className="flex-1 flex flex-col items-center justify-center px-8">
-              <div className="relative mb-6">
-                <div className="absolute inset-0 rounded-full bg-red-500/20 blur-2xl scale-150" />
-                {displayAvatar ? (
-                  <img src={displayAvatar} alt="" className="relative w-28 h-28 rounded-full object-cover opacity-50" />
-                ) : (
-                  <div className="relative w-28 h-28 rounded-full bg-gradient-to-br from-vortex-500/50 to-purple-600/50 flex items-center justify-center text-white font-bold text-3xl">
-                    {initials}
-                  </div>
-                )}
+          {/* ========== CONNECTED + REMOTE VIDEO → Fullscreen remote ========== */}
+          {callState === 'connected' && hasRemoteVideo ? (
+            <>
+              {/* Remote video fullscreen */}
+              <div className="absolute inset-0 bg-black">
+                <video
+                  ref={remoteVideoRef}
+                  autoPlay
+                  playsInline
+                  muted
+                  className="w-full h-full object-contain bg-black"
+                />
               </div>
-              {/* 3 buttons */}
-              <div className="flex items-center gap-8">
-                <button
-                  onClick={() => { setShowNoAnswerScreen(false); onClose(); }}
-                  className="flex flex-col items-center gap-2"
+
+              {/* Name + duration at top */}
+              <div className="absolute top-0 left-0 right-0 z-20 bg-gradient-to-b from-black/70 to-transparent pt-12 pb-8 px-4">
+                <p className="text-lg font-bold text-white text-center">{displayName}</p>
+                <p className="text-sm text-white/70 font-mono text-center">{formatDuration(duration)}</p>
+              </div>
+
+              {/* Local camera PIP — bottom-right */}
+              {hasLocalVideo && (
+                <div className="absolute bottom-28 right-4 z-20 w-36 rounded-2xl overflow-hidden border-2 border-white/20 shadow-2xl bg-black"
+                  style={{ aspectRatio: '9 / 16' }}
                 >
-                  <div className="w-14 h-14 rounded-full bg-white/10 flex items-center justify-center text-white">
-                    <X size={22} />
+                  <video
+                    ref={localVideoRef}
+                    autoPlay
+                    playsInline
+                    muted
+                    className="w-full h-full object-cover"
+                  />
+                  {/* "Вы" label */}
+                  <div className="absolute bottom-1.5 left-1.5 px-2 py-0.5 rounded-full bg-black/50 text-[10px] text-white font-medium">
+                    Вы
+                  </div>
+                  {/* Switch camera button */}
+                  <button
+                    onClick={async () => {
+                      try {
+                        const devices = await navigator.mediaDevices.enumerateDevices();
+                        const cameras = devices.filter(d => d.kind === 'videoinput');
+                        if (cameras.length < 2) return;
+                        const currentIdx = cameras.findIndex(c => c.deviceId === activeCameraId);
+                        const nextCam = cameras[(currentIdx + 1) % cameras.length];
+                        const sender = peerRef.current?.getSenders().find(s => s.track?.kind === 'video');
+                        if (sender && nextCam) {
+                          const newStream = await navigator.mediaDevices.getUserMedia({ video: { deviceId: { exact: nextCam.deviceId } } });
+                          const newTrack = newStream.getVideoTracks()[0];
+                          await sender.replaceTrack(newTrack);
+                          // Update local video element
+                          if (localStreamRef.current) {
+                            const oldVideoTracks = localStreamRef.current.getVideoTracks();
+                            oldVideoTracks.forEach(t => { t.stop(); localStreamRef.current?.removeTrack(t); });
+                            localStreamRef.current.addTrack(newTrack);
+                          }
+                          if (localVideoRef.current) {
+                            localVideoRef.current.srcObject = localStreamRef.current;
+                          }
+                          setActiveCameraId(nextCam.deviceId);
+                        }
+                      } catch (e) { console.warn('Camera switch failed:', e); }
+                    }}
+                    className="absolute top-1.5 right-1.5 w-7 h-7 rounded-full bg-black/50 flex items-center justify-center text-white"
+                  >
+                    <SwitchCamera size={14} />
+                  </button>
+                </div>
+              )}
+
+              {/* 4 buttons bottom */}
+              <div className="absolute bottom-0 left-0 right-0 pb-12 pt-6 bg-gradient-to-t from-black/70 to-transparent z-20">
+                <div className="flex items-center justify-center">
+                  <div className="flex items-center gap-5 bg-white/10 rounded-full px-6 py-3.5 backdrop-blur-sm border border-white/5">
+                    <button onClick={toggleEarpiece} className={`w-14 h-14 rounded-full flex items-center justify-center transition-all ${!isEarpieceMode ? 'bg-vortex-500 text-white shadow-lg shadow-vortex-500/30' : 'bg-white/10 text-white/70'}`}>
+                      <Volume2 size={22} />
+                    </button>
+                    <button onClick={toggleMic} className={`w-14 h-14 rounded-full flex items-center justify-center transition-all ${isMuted ? 'bg-red-500 text-white shadow-lg shadow-red-500/30' : 'bg-white/10 text-white/70'}`}>
+                      {isMuted ? <MicOff size={22} /> : <Mic size={22} />}
+                    </button>
+                    <button onClick={toggleMobileCamera} className={`w-14 h-14 rounded-full flex items-center justify-center transition-all ${(!isVideoOff && callType === 'video') ? 'bg-vortex-500 text-white shadow-lg shadow-vortex-500/30' : 'bg-white/10 text-white/70'}`}>
+                      {(!isVideoOff && callType === 'video') ? <Video size={22} /> : <VideoOff size={22} />}
+                    </button>
+                    <button onClick={endCallSafe} className="w-14 h-14 rounded-full bg-red-500 flex items-center justify-center text-white shadow-lg shadow-red-500/30">
+                      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M10.68 13.31a16 16 0 0 0 3.41 2.6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7 2 2 0 0 1 1.72 2v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 2.59 3.4z" transform="rotate(135 12 12)" />
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </>
+          ) : showNoAnswerScreen ? (
+            /* ========== NO ANSWER SCREEN ========== */
+            <div className="flex-1 flex flex-col items-center justify-end px-8 pb-16 pt-8">
+              <div className="flex-1 flex flex-col items-center justify-center">
+                <div className="relative mb-4">
+                  <div className="absolute inset-[-24px] rounded-full bg-red-500/15 blur-2xl" />
+                  {displayAvatar ? (
+                    <img src={displayAvatar} alt="" className="relative w-36 h-36 rounded-full object-cover opacity-50" />
+                  ) : (
+                    <div className="relative w-36 h-36 rounded-full bg-gradient-to-br from-vortex-500/50 to-purple-600/50 flex items-center justify-center text-white font-bold text-4xl">
+                      {initials}
+                    </div>
+                  )}
+                </div>
+                <p className="text-lg font-bold text-white">{displayName}</p>
+              </div>
+              {/* 3 buttons at bottom */}
+              <div className="flex items-center gap-8">
+                <button onClick={() => { setShowNoAnswerScreen(false); onClose(); }} className="flex flex-col items-center gap-2">
+                  <div className="w-16 h-16 rounded-full bg-white/10 flex items-center justify-center text-white">
+                    <X size={24} />
                   </div>
                   <span className="text-xs text-zinc-400">Закрыть</span>
                 </button>
-                <button
-                  onClick={() => {
-                    setShowNoAnswerScreen(false);
-                    onClose();
-                    window.dispatchEvent(new CustomEvent('vortex:open-chat', { detail: { userId: targetUser?.id } }));
-                  }}
-                  className="flex flex-col items-center gap-2"
-                >
-                  <div className="w-14 h-14 rounded-full bg-vortex-500/20 flex items-center justify-center text-vortex-400">
-                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+                <button onClick={() => { setShowNoAnswerScreen(false); onClose(); window.dispatchEvent(new CustomEvent('vortex:open-chat', { detail: { userId: targetUser?.id } })); }} className="flex flex-col items-center gap-2">
+                  <div className="w-16 h-16 rounded-full bg-vortex-500/20 flex items-center justify-center text-vortex-400">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
                   </div>
                   <span className="text-xs text-zinc-400">Написать</span>
                 </button>
-                <button
-                  onClick={() => {
-                    setShowNoAnswerScreen(false);
-                    callEndedRef.current = false;
-                    setCallState('idle');
-                    setTimeout(() => {
-                      setCallState('calling');
-                    }, 100);
-                  }}
-                  className="flex flex-col items-center gap-2"
-                >
-                  <div className="w-14 h-14 rounded-full bg-emerald-500/20 flex items-center justify-center text-emerald-400">
-                    <Phone size={22} />
+                <button onClick={() => { setShowNoAnswerScreen(false); callEndedRef.current = false; setCallState('idle'); setTimeout(() => setCallState('calling'), 100); }} className="flex flex-col items-center gap-2">
+                  <div className="w-16 h-16 rounded-full bg-emerald-500/20 flex items-center justify-center text-emerald-400">
+                    <Phone size={24} />
                   </div>
                   <span className="text-xs text-zinc-400">Перезвонить</span>
                 </button>
               </div>
             </div>
           ) : (
-            /* Normal call view — avatar + glow */
-            <div className="flex-1 flex flex-col items-center justify-center px-8">
-              {/* Avatar with beautiful glow */}
-              <div className="relative mb-8">
-                {/* Outer glow rings */}
-                {(callState === 'calling' || callState === 'connected') && (
-                  <>
-                    <div className="absolute inset-[-20px] rounded-full bg-vortex-500/10 blur-xl animate-pulse" style={{ animationDuration: '3s' }} />
-                    <div className="absolute inset-[-12px] rounded-full border border-vortex-500/20 animate-call-wave" />
-                    <div className="absolute inset-[-4px] rounded-full border border-vortex-500/10 animate-call-wave-delayed" />
-                  </>
-                )}
-                {callState === 'incoming' && (
-                  <>
-                    <div className="absolute inset-[-20px] rounded-full bg-emerald-500/10 blur-xl animate-pulse" style={{ animationDuration: '3s' }} />
-                    <div className="absolute inset-[-12px] rounded-full border border-emerald-500/20 animate-call-wave" />
-                    <div className="absolute inset-[-4px] rounded-full border border-emerald-500/10 animate-call-wave-delayed" />
-                  </>
-                )}
-                <div className="relative z-10 p-1.5 rounded-full bg-gradient-to-br from-white/10 to-transparent border border-white/10 shadow-2xl">
-                  {displayAvatar ? (
-                    <img src={displayAvatar} alt="" className="w-32 h-32 rounded-full object-cover" />
-                  ) : (
-                    <div className="w-32 h-32 rounded-full bg-gradient-to-br from-vortex-500 to-purple-600 flex items-center justify-center text-white font-bold text-4xl">
-                      {initials}
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Bottom controls — 4 buttons in oval for ALL states (calling, connected, incoming) */}
-          {!showNoAnswerScreen && (
-            <div className="pb-12 px-6 z-10">
-              <div className="flex items-center justify-center">
-                <div className="flex items-center gap-4 bg-white/10 rounded-full px-6 py-3 backdrop-blur-sm border border-white/5">
-                  {/* Speaker */}
-                  <button
-                    onClick={toggleEarpiece}
-                    className={`w-12 h-12 rounded-full flex items-center justify-center transition-all ${!isEarpieceMode ? 'bg-vortex-500 text-white shadow-lg shadow-vortex-500/30' : 'bg-white/10 text-white/70'}`}
-                  >
-                    <Volume2 size={20} />
+            /* ========== VOICE CALL (calling / connected without video / incoming) ========== */
+            <>
+              {/* Minimize button */}
+              {callState !== 'incoming' && (
+                <div className="px-4 pt-12 pb-2 z-10">
+                  <button onClick={() => setIsMinimized(true)} className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center text-white/70">
+                    <Minus size={20} />
                   </button>
-                  {/* Mic */}
-                  <button
-                    onClick={toggleMic}
-                    className={`w-12 h-12 rounded-full flex items-center justify-center transition-all ${isMuted ? 'bg-red-500 text-white shadow-lg shadow-red-500/30' : 'bg-white/10 text-white/70'}`}
-                  >
-                    {isMuted ? <MicOff size={20} /> : <Mic size={20} />}
-                  </button>
-                  {/* Camera */}
-                  <button
-                    onClick={toggleMobileCamera}
-                    className={`w-12 h-12 rounded-full flex items-center justify-center transition-all ${(!isVideoOff && callType === 'video') ? 'bg-vortex-500 text-white shadow-lg shadow-vortex-500/30' : 'bg-white/10 text-white/70'}`}
-                  >
-                    {(!isVideoOff && callType === 'video') ? <Video size={20} /> : <VideoOff size={20} />}
-                  </button>
-                  {/* End call — phone icon pointing down */}
-                  <button
-                    onClick={endCallSafe}
-                    className="w-12 h-12 rounded-full bg-red-500 flex items-center justify-center text-white shadow-lg shadow-red-500/30"
-                  >
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M10.68 13.31a16 16 0 0 0 3.41 2.6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7 2 2 0 0 1 1.72 2v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 2.59 3.4z" transform="rotate(135 12 12)" />
-                    </svg>
-                  </button>
-                </div>
-              </div>
-              {/* Incoming: accept/decline labels */}
-              {callState === 'incoming' && (
-                <div className="flex items-center justify-center gap-[76px] mt-3">
-                  <span className="text-xs text-zinc-500">Отклонить</span>
-                  <span className="text-xs text-zinc-500">Принять</span>
                 </div>
               )}
-            </div>
+
+              {/* Avatar + name */}
+              <div className="flex-1 flex flex-col items-center justify-center px-8">
+                <div className="relative mb-6">
+                  {(callState === 'calling' || callState === 'connected') && (
+                    <>
+                      <div className="absolute inset-[-24px] rounded-full bg-vortex-500/10 blur-xl animate-pulse" style={{ animationDuration: '3s' }} />
+                      <div className="absolute inset-[-14px] rounded-full border-2 border-vortex-500/20 animate-call-wave" />
+                      <div className="absolute inset-[-6px] rounded-full border border-vortex-500/10 animate-call-wave-delayed" />
+                    </>
+                  )}
+                  {callState === 'incoming' && (
+                    <>
+                      <div className="absolute inset-[-24px] rounded-full bg-emerald-500/10 blur-xl animate-pulse" style={{ animationDuration: '3s' }} />
+                      <div className="absolute inset-[-14px] rounded-full border-2 border-emerald-500/20 animate-call-wave" />
+                      <div className="absolute inset-[-6px] rounded-full border border-emerald-500/10 animate-call-wave-delayed" />
+                    </>
+                  )}
+                  <div className="relative z-10 p-1.5 rounded-full bg-gradient-to-br from-white/10 to-transparent border border-white/10 shadow-2xl">
+                    {displayAvatar ? (
+                      <img src={displayAvatar} alt="" className="w-36 h-36 rounded-full object-cover" />
+                    ) : (
+                      <div className="w-36 h-36 rounded-full bg-gradient-to-br from-vortex-500 to-purple-600 flex items-center justify-center text-white font-bold text-5xl">
+                        {initials}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Bottom buttons — different for each state */}
+              <div className="pb-12 px-6 z-10">
+                {callState === 'incoming' ? (
+                  /* INCOMING: 2 big buttons — decline + accept */
+                  <div className="flex items-center justify-center gap-12">
+                    <button onClick={declineCall} className="flex flex-col items-center gap-2">
+                      <div className="w-[68px] h-[68px] rounded-full bg-red-500 flex items-center justify-center text-white shadow-xl shadow-red-500/30">
+                        <PhoneOff size={28} />
+                      </div>
+                      <span className="text-xs text-zinc-400">Отклонить</span>
+                    </button>
+                    <button onClick={acceptCall} className="flex flex-col items-center gap-2">
+                      <div className="w-[68px] h-[68px] rounded-full bg-emerald-500 flex items-center justify-center text-white shadow-xl shadow-emerald-500/30 animate-pulse">
+                        <Phone size={28} className="animate-bounce" />
+                      </div>
+                      <span className="text-xs text-zinc-400">Принять</span>
+                    </button>
+                  </div>
+                ) : callState === 'calling' ? (
+                  /* OUTGOING: only end call button */
+                  <div className="flex flex-col items-center gap-3">
+                    <div className="w-[68px] h-[68px] rounded-full bg-red-500 flex items-center justify-center text-white shadow-xl shadow-red-500/30">
+                      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M10.68 13.31a16 16 0 0 0 3.41 2.6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7 2 2 0 0 1 1.72 2v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 2.59 3.4z" transform="rotate(135 12 12)" />
+                      </svg>
+                    </div>
+                    <span className="text-xs text-zinc-500">Сбросить</span>
+                  </div>
+                ) : (
+                  /* CONNECTED (voice, no video): 4 buttons in oval */
+                  <div className="flex items-center justify-center">
+                    <div className="flex items-center gap-5 bg-white/10 rounded-full px-6 py-3.5 backdrop-blur-sm border border-white/5">
+                      <button onClick={toggleEarpiece} className={`w-14 h-14 rounded-full flex items-center justify-center transition-all ${!isEarpieceMode ? 'bg-vortex-500 text-white shadow-lg shadow-vortex-500/30' : 'bg-white/10 text-white/70'}`}>
+                        <Volume2 size={22} />
+                      </button>
+                      <button onClick={toggleMic} className={`w-14 h-14 rounded-full flex items-center justify-center transition-all ${isMuted ? 'bg-red-500 text-white shadow-lg shadow-red-500/30' : 'bg-white/10 text-white/70'}`}>
+                        {isMuted ? <MicOff size={22} /> : <Mic size={22} />}
+                      </button>
+                      <button onClick={toggleMobileCamera} className={`w-14 h-14 rounded-full flex items-center justify-center transition-all ${(!isVideoOff && callType === 'video') ? 'bg-vortex-500 text-white shadow-lg shadow-vortex-500/30' : 'bg-white/10 text-white/70'}`}>
+                        {(!isVideoOff && callType === 'video') ? <Video size={22} /> : <VideoOff size={22} />}
+                      </button>
+                      <button onClick={endCallSafe} className="w-14 h-14 rounded-full bg-red-500 flex items-center justify-center text-white shadow-lg shadow-red-500/30">
+                        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M10.68 13.31a16 16 0 0 0 3.41 2.6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7 2 2 0 0 1 1.72 2v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 2.59 3.4z" transform="rotate(135 12 12)" />
+                        </svg>
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </>
           )}
         </motion.div>
       )}
