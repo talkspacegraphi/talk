@@ -276,6 +276,12 @@ export default function CallModal({ isOpen, onClose, targetUser, callType: initi
   const callInProgressRef = useRef(false); // guard against multiple startCall/acceptCall
   const earpieceEnsuredRef = useRef(false); // guard: ensure earpiece is set only once per call
 
+  // Bumped whenever a track is added/removed from localStreamRef so the
+  // local-video <video>.srcObject effect re-runs (refs alone don't trigger
+  // effects, which is why the local preview didn't show until the remote
+  // video started flowing).
+  const [localStreamVersion, setLocalStreamVersion] = useState(0);
+
   // Refresh all devices on call connect
   const refreshAllDevices = useCallback(async () => {
     try {
@@ -363,6 +369,13 @@ const toggleEarpiece = useCallback(async () => {
           stream.getVideoTracks().forEach(track => {
             localStreamRef.current?.addTrack(track);
           });
+          // Force the local-video <video> element to re-attach to the (now-updated) localStream
+          // so the user sees their own camera. Without this, adding a track to a MediaStream
+          // doesn't trigger React effects that depend on the ref.
+          if (localVideoRef.current && localStreamRef.current) {
+            localVideoRef.current.srcObject = localStreamRef.current;
+          }
+          setLocalStreamVersion(v => v + 1);
           setIsVideoOff(false);
           setCallType('video');
           const offer = await peerRef.current.createOffer();
@@ -394,6 +407,8 @@ const toggleEarpiece = useCallback(async () => {
             await sender.replaceTrack(videoTracks[0]);
           }
         }
+        // Bump version so the local-preview effect re-runs and (re)attaches srcObject.
+        setLocalStreamVersion(v => v + 1);
       }
     }
   }, [callType, isVideoOff]);
@@ -849,7 +864,12 @@ const endCallSafe = useCallback(() => {
       setCallType(effectiveCallType);
 setCallState('connected');
       timerRef.current = setInterval(() => setDuration((d) => d + 1), 1000);
-      if (isAndroidWebView()) (window as any).Android?.onCallStarted?.();
+      // Force earpiece BEFORE notifying Android, so the audio route is set
+      // to earpiece before the WebRTC audio actually starts flowing.
+      if (isAndroidWebView()) {
+        (window as any).Android?.setSpeakerOn?.(false);
+        (window as any).Android?.onCallStarted?.();
+      }
     } catch (err: any) {
       console.error('Error accepting call:', err);
       nativeCallLog(`acceptCall ERROR: ${err?.name} - ${err?.message}`);
@@ -1670,8 +1690,11 @@ setCallState('connected');
       iceCandidateBufferRef.current = [];
       setCallState('connected');
       timerRef.current = setInterval(() => setDuration((d) => d + 1), 1000);
-      // Notify Android: call started → switch to earpiece
-      if (isAndroidWebView()) (window as any).Android?.onCallStarted?.();
+      // Force earpiece BEFORE notifying Android (see comment in acceptCall).
+      if (isAndroidWebView()) {
+        (window as any).Android?.setSpeakerOn?.(false);
+        (window as any).Android?.onCallStarted?.();
+      }
     };
 
     const onIceCandidate = (data: { from: string; candidate: RTCIceCandidateInit }) => {
@@ -1776,6 +1799,8 @@ setCallState('connected');
 
   // Sync local video ref with stream — set unconditionally so any track additions/changes
   // (e.g. adding video after a voice call starts) are reflected immediately.
+  // localStreamVersion is a state counter bumped whenever a track is added/removed,
+  // so this effect actually re-runs (refs don't trigger effects).
   useEffect(() => {
     if (!localVideoRef.current) return;
     const desired = isScreenSharing && screenStreamRef.current
@@ -1784,7 +1809,7 @@ setCallState('connected');
     if (desired) {
       localVideoRef.current.srcObject = desired;
     }
-  }, [localStreamRef.current, screenStreamRef.current, isScreenSharing]);
+  }, [localStreamVersion, isScreenSharing]);
 
   // Sync remote video ref with remote stream (only when srcObject actually changes)
   useEffect(() => {
