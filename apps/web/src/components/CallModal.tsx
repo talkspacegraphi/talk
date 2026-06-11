@@ -248,13 +248,11 @@ export default function CallModal({ isOpen, onClose, targetUser, callType: initi
           } else {
             peerRef.current.addTrack(videoTrack, localStreamRef.current!);
           }
-          // Add local stream tracks if not already added
           stream.getVideoTracks().forEach(track => {
             localStreamRef.current?.addTrack(track);
           });
           setIsVideoOff(false);
           setCallType('video');
-          // Renegotiate
           const offer = await peerRef.current.createOffer();
           await peerRef.current.setLocalDescription(offer);
           getSocket()?.emit('renegotiate', { targetUserId: targetUserIdRef.current, offer: peerRef.current.localDescription });
@@ -267,12 +265,23 @@ export default function CallModal({ isOpen, onClose, targetUser, callType: initi
         }
       }
     } else {
-      // Toggle existing video
-      if (localStreamRef.current) {
-        const videoTracks = localStreamRef.current.getVideoTracks();
-        const newState = !isVideoOff;
-        videoTracks.forEach(t => { t.enabled = newState; });
-        setIsVideoOff(!newState);
+      // Video call — toggle video track on/off
+      const videoTracks = localStreamRef.current?.getVideoTracks() || [];
+      if (videoTracks.length > 0) {
+        const newOff = videoTracks[0].enabled;
+        videoTracks.forEach(t => { t.enabled = !newOff; });
+        setIsVideoOff(newOff);
+        // Replace track with null or re-add
+        const sender = peerRef.current?.getSenders().find(s => s.track?.kind === 'video');
+        if (sender && peerRef.current) {
+          if (newOff) {
+            // Turning off — replace with null
+            await sender.replaceTrack(new MediaStreamTrack());
+          } else {
+            // Turning on — replace with existing track
+            await sender.replaceTrack(videoTracks[0]);
+          }
+        }
       }
     }
   }, [callType, isVideoOff]);
@@ -1659,51 +1668,51 @@ export default function CallModal({ isOpen, onClose, targetUser, callType: initi
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           className="fixed inset-0 z-[100] flex flex-col overflow-hidden"
-          style={{ background: isEarpieceMode && callState === 'connected'
-            ? 'linear-gradient(180deg, #0a0a0f 0%, #111118 50%, #0a0a0f 100%)'
-            : 'linear-gradient(180deg, #111118 0%, #1a1a2e 50%, #111118 100%)'
-          }}
+          style={{ background: 'linear-gradient(180deg, #0a0a0f 0%, #111118 40%, #111118 60%, #0a0a0f 100%)' }}
         >
           {/* Hidden video elements */}
           <video ref={remoteVideoRef} autoPlay playsInline muted className="hidden" />
           <video ref={localVideoRef} autoPlay playsInline muted className="hidden" />
 
-          {/* Top bar */}
-          <div className="flex items-center justify-between px-4 pt-12 pb-4 z-10">
-            <button
-              onClick={() => setIsMinimized(true)}
-              className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center text-white/70"
-            >
-              <Minus size={20} />
-            </button>
-            <div className="text-center">
-              <p className="text-sm text-white font-medium">{displayName}</p>
-              <p className="text-xs text-zinc-400 font-mono">
-                {showNoAnswerScreen ? 'Не удалось дозвониться' :
-                 callState === 'calling' ? 'Вызов...' :
-                 callState === 'connected' ? formatDuration(duration) :
-                 callState === 'incoming' ? 'Входящий звонок' : ''}
-              </p>
+          {/* Top bar — only minimize during active call, NOT on no-answer screen */}
+          {!showNoAnswerScreen && (
+            <div className="flex items-center justify-between px-4 pt-12 pb-2 z-10">
+              <button
+                onClick={() => setIsMinimized(true)}
+                className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center text-white/70"
+              >
+                <Minus size={20} />
+              </button>
+              <div className="w-10" />
             </div>
-            <div className="w-10" />
+          )}
+
+          {/* Name + status — ONLY text area */}
+          <div className="text-center pt-2 pb-4 z-10">
+            <p className="text-lg font-bold text-white mb-1">{displayName}</p>
+            <p className="text-sm text-zinc-400 font-mono">
+              {showNoAnswerScreen ? 'Не удалось дозвониться' :
+               callState === 'calling' ? 'Вызов...' :
+               callState === 'connected' ? formatDuration(duration) :
+               callState === 'incoming' ? (callType === 'video' ? 'Видеозвонок' : 'Звонок') : ''}
+            </p>
           </div>
 
           {/* No-answer screen */}
           {showNoAnswerScreen ? (
             <div className="flex-1 flex flex-col items-center justify-center px-8">
-              <div className="mb-8">
+              <div className="relative mb-6">
+                <div className="absolute inset-0 rounded-full bg-red-500/20 blur-2xl scale-150" />
                 {displayAvatar ? (
-                  <img src={displayAvatar} alt="" className="w-28 h-28 rounded-full object-cover opacity-50" />
+                  <img src={displayAvatar} alt="" className="relative w-28 h-28 rounded-full object-cover opacity-50" />
                 ) : (
-                  <div className="w-28 h-28 rounded-full bg-gradient-to-br from-vortex-500/50 to-purple-600/50 flex items-center justify-center text-white font-bold text-3xl">
+                  <div className="relative w-28 h-28 rounded-full bg-gradient-to-br from-vortex-500/50 to-purple-600/50 flex items-center justify-center text-white font-bold text-3xl">
                     {initials}
                   </div>
                 )}
               </div>
-              <h3 className="text-xl font-bold text-white mb-2">{displayName}</h3>
-              <p className="text-sm text-zinc-400 mb-12">Не удалось дозвониться</p>
               {/* 3 buttons */}
-              <div className="flex items-center gap-6">
+              <div className="flex items-center gap-8">
                 <button
                   onClick={() => { setShowNoAnswerScreen(false); onClose(); }}
                   className="flex flex-col items-center gap-2"
@@ -1717,7 +1726,6 @@ export default function CallModal({ isOpen, onClose, targetUser, callType: initi
                   onClick={() => {
                     setShowNoAnswerScreen(false);
                     onClose();
-                    // Open chat with this user
                     window.dispatchEvent(new CustomEvent('vortex:open-chat', { detail: { userId: targetUser?.id } }));
                   }}
                   className="flex flex-col items-center gap-2"
@@ -1730,7 +1738,6 @@ export default function CallModal({ isOpen, onClose, targetUser, callType: initi
                 <button
                   onClick={() => {
                     setShowNoAnswerScreen(false);
-                    // Re-initiate call
                     callEndedRef.current = false;
                     setCallState('idle');
                     setTimeout(() => {
@@ -1747,20 +1754,23 @@ export default function CallModal({ isOpen, onClose, targetUser, callType: initi
               </div>
             </div>
           ) : (
-            /* Normal call view */
+            /* Normal call view — avatar + glow */
             <div className="flex-1 flex flex-col items-center justify-center px-8">
-              {/* Avatar */}
+              {/* Avatar with beautiful glow */}
               <div className="relative mb-8">
+                {/* Outer glow rings */}
                 {(callState === 'calling' || callState === 'connected') && (
                   <>
-                    <div className="absolute inset-0 rounded-full bg-vortex-500/30 animate-call-wave" />
-                    <div className="absolute inset-0 rounded-full bg-vortex-500/20 animate-call-wave-delayed" />
+                    <div className="absolute inset-[-20px] rounded-full bg-vortex-500/10 blur-xl animate-pulse" style={{ animationDuration: '3s' }} />
+                    <div className="absolute inset-[-12px] rounded-full border border-vortex-500/20 animate-call-wave" />
+                    <div className="absolute inset-[-4px] rounded-full border border-vortex-500/10 animate-call-wave-delayed" />
                   </>
                 )}
                 {callState === 'incoming' && (
                   <>
-                    <div className="absolute inset-0 rounded-full bg-emerald-500/30 animate-call-wave" />
-                    <div className="absolute inset-0 rounded-full bg-emerald-500/20 animate-call-wave-delayed" />
+                    <div className="absolute inset-[-20px] rounded-full bg-emerald-500/10 blur-xl animate-pulse" style={{ animationDuration: '3s' }} />
+                    <div className="absolute inset-[-12px] rounded-full border border-emerald-500/20 animate-call-wave" />
+                    <div className="absolute inset-[-4px] rounded-full border border-emerald-500/10 animate-call-wave-delayed" />
                   </>
                 )}
                 <div className="relative z-10 p-1.5 rounded-full bg-gradient-to-br from-white/10 to-transparent border border-white/10 shadow-2xl">
@@ -1773,85 +1783,53 @@ export default function CallModal({ isOpen, onClose, targetUser, callType: initi
                   )}
                 </div>
               </div>
-              <h3 className="text-2xl font-bold text-white mb-2">{displayName}</h3>
-              <p className="text-sm text-zinc-400">
-                {callState === 'calling' && 'Вызов...'}
-                {callState === 'connected' && formatDuration(duration)}
-                {callState === 'incoming' && (callType === 'video' ? 'Видеозвонок' : 'Звонок')}
-              </p>
             </div>
           )}
 
-          {/* Bottom controls */}
+          {/* Bottom controls — 4 buttons in oval for ALL states (calling, connected, incoming) */}
           {!showNoAnswerScreen && (
             <div className="pb-12 px-6 z-10">
-              {callState === 'incoming' ? (
-                /* Incoming call: decline + accept */
-                <div className="flex items-center justify-center gap-8">
+              <div className="flex items-center justify-center">
+                <div className="flex items-center gap-4 bg-white/10 rounded-full px-6 py-3 backdrop-blur-sm border border-white/5">
+                  {/* Speaker */}
                   <button
-                    onClick={declineCall}
-                    className="flex flex-col items-center gap-2"
+                    onClick={toggleEarpiece}
+                    className={`w-12 h-12 rounded-full flex items-center justify-center transition-all ${!isEarpieceMode ? 'bg-vortex-500 text-white shadow-lg shadow-vortex-500/30' : 'bg-white/10 text-white/70'}`}
                   >
-                    <div className="w-16 h-16 rounded-full bg-red-500 flex items-center justify-center text-white shadow-xl shadow-red-500/30">
-                      <PhoneOff size={24} />
-                    </div>
-                    <span className="text-xs text-zinc-400">Отклонить</span>
+                    <Volume2 size={20} />
                   </button>
+                  {/* Mic */}
                   <button
-                    onClick={acceptCall}
-                    className="flex flex-col items-center gap-2"
+                    onClick={toggleMic}
+                    className={`w-12 h-12 rounded-full flex items-center justify-center transition-all ${isMuted ? 'bg-red-500 text-white shadow-lg shadow-red-500/30' : 'bg-white/10 text-white/70'}`}
                   >
-                    <div className="w-16 h-16 rounded-full bg-emerald-500 flex items-center justify-center text-white shadow-xl shadow-emerald-500/30 animate-pulse">
-                      <Phone size={24} className="animate-bounce" />
-                    </div>
-                    <span className="text-xs text-zinc-400">Принять</span>
+                    {isMuted ? <MicOff size={20} /> : <Mic size={20} />}
                   </button>
-                </div>
-              ) : callState === 'connected' ? (
-                /* Connected: 4 buttons in oval */
-                <div className="flex items-center justify-center">
-                  <div className="flex items-center gap-4 bg-white/10 rounded-full px-6 py-3 backdrop-blur-sm border border-white/5">
-                    {/* Speaker */}
-                    <button
-                      onClick={toggleEarpiece}
-                      className={`w-12 h-12 rounded-full flex items-center justify-center transition-all ${!isEarpieceMode ? 'bg-vortex-500 text-white shadow-lg shadow-vortex-500/30' : 'bg-white/10 text-white/70'}`}
-                    >
-                      <Volume2 size={20} />
-                    </button>
-                    {/* Mic */}
-                    <button
-                      onClick={toggleMic}
-                      className={`w-12 h-12 rounded-full flex items-center justify-center transition-all ${isMuted ? 'bg-red-500 text-white shadow-lg shadow-red-500/30' : 'bg-white/10 text-white/70'}`}
-                    >
-                      {isMuted ? <MicOff size={20} /> : <Mic size={20} />}
-                    </button>
-                    {/* Camera */}
-                    <button
-                      onClick={toggleMobileCamera}
-                      className={`w-12 h-12 rounded-full flex items-center justify-center transition-all ${(!isVideoOff && callType === 'video') ? 'bg-vortex-500 text-white shadow-lg shadow-vortex-500/30' : 'bg-white/10 text-white/70'}`}
-                    >
-                      {(!isVideoOff && callType === 'video') ? <Video size={20} /> : <VideoOff size={20} />}
-                    </button>
-                    {/* End call */}
-                    <button
-                      onClick={endCallSafe}
-                      className="w-12 h-12 rounded-full bg-red-500 flex items-center justify-center text-white shadow-lg shadow-red-500/30"
-                    >
-                      <PhoneOff size={20} />
-                    </button>
-                  </div>
-                </div>
-              ) : callState === 'calling' ? (
-                /* Calling: end call only */
-                <div className="flex justify-center">
+                  {/* Camera */}
+                  <button
+                    onClick={toggleMobileCamera}
+                    className={`w-12 h-12 rounded-full flex items-center justify-center transition-all ${(!isVideoOff && callType === 'video') ? 'bg-vortex-500 text-white shadow-lg shadow-vortex-500/30' : 'bg-white/10 text-white/70'}`}
+                  >
+                    {(!isVideoOff && callType === 'video') ? <Video size={20} /> : <VideoOff size={20} />}
+                  </button>
+                  {/* End call — phone icon pointing down */}
                   <button
                     onClick={endCallSafe}
-                    className="w-16 h-16 rounded-full bg-red-500 flex items-center justify-center text-white shadow-xl shadow-red-500/30"
+                    className="w-12 h-12 rounded-full bg-red-500 flex items-center justify-center text-white shadow-lg shadow-red-500/30"
                   >
-                    <PhoneOff size={24} />
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M10.68 13.31a16 16 0 0 0 3.41 2.6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7 2 2 0 0 1 1.72 2v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 2.59 3.4z" transform="rotate(135 12 12)" />
+                    </svg>
                   </button>
                 </div>
-              ) : null}
+              </div>
+              {/* Incoming: accept/decline labels */}
+              {callState === 'incoming' && (
+                <div className="flex items-center justify-center gap-[76px] mt-3">
+                  <span className="text-xs text-zinc-500">Отклонить</span>
+                  <span className="text-xs text-zinc-500">Принять</span>
+                </div>
+              )}
             </div>
           )}
         </motion.div>

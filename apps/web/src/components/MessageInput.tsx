@@ -486,6 +486,12 @@ export default memo(function MessageInput({ chatId, isBlocked, blockedByOther, o
   // Запись голосового
   const startRecording = async (lockImmediately = false) => {
     try {
+      if (!navigator.mediaDevices?.getUserMedia) {
+        alert(isAndroidWebView()
+          ? 'Запись голосовых недоступна в WebView'
+          : 'Запись голосовых требует HTTPS');
+        return;
+      }
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: isAndroidWebView()
           ? { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
@@ -493,13 +499,21 @@ export default memo(function MessageInput({ chatId, isBlocked, blockedByOther, o
       });
       streamRef.current = stream;
       // Use ogg/opus for better compatibility, fallback to webm
-      const mimeType = MediaRecorder.isTypeSupported('audio/ogg;codecs=opus')
-        ? 'audio/ogg;codecs=opus'
-        : MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
-          ? 'audio/webm;codecs=opus'
-          : 'audio/webm';
-      const ext = mimeType.includes('ogg') ? 'ogg' : 'webm';
-      const recorder = new MediaRecorder(stream, { mimeType });
+      let mimeType = 'audio/webm';
+      if (MediaRecorder.isTypeSupported('audio/ogg;codecs=opus')) {
+        mimeType = 'audio/ogg;codecs=opus';
+      } else if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) {
+        mimeType = 'audio/webm;codecs=opus';
+      } else if (MediaRecorder.isTypeSupported('audio/mp4')) {
+        mimeType = 'audio/mp4';
+      }
+      const ext = mimeType.includes('ogg') ? 'ogg' : mimeType.includes('mp4') ? 'm4a' : 'webm';
+      let recorder: MediaRecorder;
+      try {
+        recorder = new MediaRecorder(stream, { mimeType });
+      } catch {
+        recorder = new MediaRecorder(stream);
+      }
       mediaRecorderRef.current = recorder;
       chunksRef.current = [];
 
@@ -679,7 +693,6 @@ export default memo(function MessageInput({ chatId, isBlocked, blockedByOther, o
     if (!btn) return;
 
     const onTouchStart = (e: TouchEvent) => {
-      e.preventDefault();
       e.stopPropagation();
       const touch = e.touches[0];
       touchStartYRef.current = touch.clientY;
