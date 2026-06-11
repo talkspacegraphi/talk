@@ -72,27 +72,40 @@ async function getMediaWithCameraFallback(
   if (!navigator.mediaDevices?.getUserMedia) {
     throw new Error('navigator.mediaDevices is not available. Calls require HTTPS or localhost.');
   }
-  if (!wantVideo) {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
-      return { stream, hasVideo: false };
-    } catch (e) {
-      // Android WebView may need a retry
-      if (isAndroidWebView()) {
-        console.warn('[getMedia] Audio-only failed, retrying for Android...');
-        await new Promise(r => setTimeout(r, 500));
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        return { stream, hasVideo: false };
+
+  // Helper: try getUserMedia with retries on Android (permission dialog takes time)
+  const tryWithRetries = async (constraints: MediaStreamConstraints, maxRetries = 10): Promise<MediaStream> => {
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+      try {
+        return await navigator.mediaDevices.getUserMedia(constraints);
+      } catch (e: any) {
+        const isLast = attempt === maxRetries - 1;
+        const isPermError = e?.name === 'NotAllowedError' || e?.name === 'NotFoundError';
+        if (isAndroidWebView() && isPermError && !isLast) {
+          console.log(`[getMedia] Attempt ${attempt + 1} failed (${e?.name}), retrying in 1s...`);
+          await new Promise(r => setTimeout(r, 1000));
+          continue;
+        }
+        throw e;
       }
-      throw e;
     }
+    throw new Error('Failed to get media after retries');
+  };
+
+  if (!wantVideo) {
+    const stream = await tryWithRetries({
+      audio: isAndroidWebView()
+        ? { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
+        : true,
+    });
+    return { stream, hasVideo: false };
   }
 
   // 1) If we have a preferred camera, try it first
   if (preferDeviceId) {
     try {
       console.log('[getMedia] Trying preferred camera:', preferDeviceId.slice(0, 12));
-      const stream = await navigator.mediaDevices.getUserMedia({
+      const stream = await tryWithRetries({
         audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
         video: { deviceId: { exact: preferDeviceId } },
       });
@@ -106,7 +119,7 @@ async function getMediaWithCameraFallback(
   // 2) Try default audio+video
   try {
     console.log('[getMedia] Requesting audio+video (default camera)...');
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }, video: true });
+    const stream = await tryWithRetries({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }, video: true });
     console.log('[getMedia] Success —', stream.getVideoTracks().map(t => `${t.label}:${t.readyState}`));
     return { stream, hasVideo: true };
   } catch (e) {
@@ -115,7 +128,7 @@ async function getMediaWithCameraFallback(
 
   // 3) Final fallback: audio only
   console.warn('[getMedia] Camera unavailable, falling back to audio only');
-  const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+  const stream = await tryWithRetries({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
   return { stream, hasVideo: false };
 }
 
@@ -178,6 +191,7 @@ export default function CallModal({ isOpen, onClose, targetUser, callType: initi
 
   const remoteStreamRef = useRef<MediaStream | null>(null);
   const disconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const callInProgressRef = useRef(false); // guard against multiple startCall/acceptCall
 
   // Refresh all devices on call connect
   const refreshAllDevices = useCallback(async () => {
@@ -339,6 +353,7 @@ export default function CallModal({ isOpen, onClose, targetUser, callType: initi
   }, [pushToTalkEnabled, callState]);
 
   const cleanup = useCallback(() => {
+    callInProgressRef.current = false;
     if (timerRef.current) clearInterval(timerRef.current);
     if (callTimeoutRef.current) clearTimeout(callTimeoutRef.current);
     if (closeTimeoutRef.current) clearTimeout(closeTimeoutRef.current);
@@ -516,12 +531,13 @@ export default function CallModal({ isOpen, onClose, targetUser, callType: initi
   // Start outgoing call
   const startCall = useCallback(async () => {
     if (!targetUser) return;
+    if (callInProgressRef.current) return;
+    callInProgressRef.current = true;
     targetUserIdRef.current = targetUser.id;
     callEndedRef.current = false;
     setCallState('calling');
 
     try {
-      // Get media (video with camera enumeration fallback)
       console.log('[startCall] Getting media, wantVideo:', callType === 'video');
       const { stream, hasVideo } = await getMediaWithCameraFallback(callType === 'video');
       console.log('[startCall] Got media — hasVideo:', hasVideo,
@@ -535,6 +551,7 @@ export default function CallModal({ isOpen, onClose, targetUser, callType: initi
 
       if (callEndedRef.current) {
         stream.getTracks().forEach(t => t.stop());
+        callInProgressRef.current = false;
         return;
       }
 
@@ -592,10 +609,14 @@ export default function CallModal({ isOpen, onClose, targetUser, callType: initi
       }, noAnswerDelay);
     } catch (err: any) {
       console.error('Error starting call:', err);
+      callInProgressRef.current = false;
       if (err?.name === 'NotAllowedError' || err?.name === 'NotFoundError') {
-        alert(callType === 'video'
-          ? 'Разрешите доступ к камере и микрофону в настройках браузера для совершения звонков'
+        alert(isAndroidWebView()
+          ? 'Разрешите доступ к микрофону для звонков. Нажмите "Звонить" снова.'
           : 'Разрешите доступ к микрофону в настройках браузера для совершения звонков');
+        // Don't close — let user retry
+        setCallState('idle');
+        return;
       }
       setCallState('ended');
       cleanup();
@@ -605,6 +626,8 @@ export default function CallModal({ isOpen, onClose, targetUser, callType: initi
   // Accept incoming call
   const acceptCall = useCallback(async () => {
     if (!incoming) return;
+    if (callInProgressRef.current) return;
+    callInProgressRef.current = true;
     targetUserIdRef.current = incoming.from;
     callEndedRef.current = false;
     stopCallRingtone();
@@ -721,8 +744,14 @@ export default function CallModal({ isOpen, onClose, targetUser, callType: initi
       timerRef.current = setInterval(() => setDuration((d) => d + 1), 1000);
     } catch (err: any) {
       console.error('Error accepting call:', err);
+      callInProgressRef.current = false;
       if (err?.name === 'NotAllowedError' || err?.name === 'NotFoundError') {
-        alert('Разрешите доступ к микрофону в настройках браузера для совершения звонков');
+        alert(isAndroidWebView()
+          ? 'Разрешите доступ к микрофону для звонков. Попробуйте принять снова.'
+          : 'Разрешите доступ к микрофону в настройках браузера для совершения звонков');
+        // Don't close — let user retry
+        setCallState('incoming');
+        return;
       }
       if (!callEndedRef.current) {
         setCallState('ended');
@@ -1597,10 +1626,12 @@ export default function CallModal({ isOpen, onClose, targetUser, callType: initi
     };
   }, [cleanup, scheduleClose]);
 
-  // Start call on mount (outgoing)
+  // Start call on mount (outgoing) — use ref to prevent double-trigger
+  const startCallRef = useRef(startCall);
+  startCallRef.current = startCall;
   useEffect(() => {
-    if (isOpen && !incoming && targetUser && callState === 'idle') {
-      startCall();
+    if (isOpen && !incoming && targetUser && callState === 'idle' && !callInProgressRef.current) {
+      startCallRef.current();
     }
     if (isOpen && incoming && callState === 'idle') {
       targetUserIdRef.current = incoming.from;
@@ -1608,7 +1639,7 @@ export default function CallModal({ isOpen, onClose, targetUser, callType: initi
       setCallType(incoming.callType);
       playCallRingtone();
     }
-  }, [isOpen, incoming, targetUser, callState, startCall]);
+  }, [isOpen, incoming, targetUser, callState]);
 
   // Sync local video ref with stream (only when srcObject actually changes)
   useEffect(() => {

@@ -8,7 +8,8 @@ export function cn(...inputs: ClassValue[]) {
 export function isAndroidWebView(): boolean {
   if (typeof window === 'undefined') return false;
   const ua = navigator.userAgent || '';
-  return /Android/i.test(ua) && /wv|WebView/i.test(ua);
+  // Detect via custom user agent token (set by APK) or standard WebView patterns
+  return /VortexApp/i.test(ua) || (/Android/i.test(ua) && /wv|WebView/i.test(ua));
 }
 
 export function formatTime(date: string | Date, lang: string = 'ru'): string {
