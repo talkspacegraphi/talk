@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback, memo, lazy, Suspense } from 'react';
+import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Send,
@@ -601,6 +602,13 @@ export default memo(function MessageInput({ chatId, isBlocked, blockedByOther, o
     if (mediaRecorderRef.current?.state === 'recording') {
       mediaRecorderRef.current.stop();
     }
+    // Stop stream immediately
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(t => t.stop());
+      streamRef.current = null;
+    }
+    mediaRecorderRef.current = null;
+    chunksRef.current = [];
     if (timerRef.current) clearInterval(timerRef.current);
     cleanupAnalyser();
     setIsRecording(false);
@@ -608,7 +616,7 @@ export default memo(function MessageInput({ chatId, isBlocked, blockedByOther, o
     setRecordingPaused(false);
     setRecordingTime(0);
     setSlideOffset(0);
-    // recordingTimeRef is consumed in onstop, don't reset here
+    recordingTimeRef.current = 0;
   };
 
   const cancelRecording = () => {
@@ -616,9 +624,14 @@ export default memo(function MessageInput({ chatId, isBlocked, blockedByOther, o
       mediaRecorderRef.current.ondataavailable = null;
       mediaRecorderRef.current.onstop = null;
       mediaRecorderRef.current.stop();
-      mediaRecorderRef.current.stream?.getTracks().forEach((t) => t.stop());
+    }
+    // Stop stream immediately
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(t => t.stop());
       streamRef.current = null;
     }
+    mediaRecorderRef.current = null;
+    chunksRef.current = [];
     if (timerRef.current) clearInterval(timerRef.current);
     cleanupAnalyser();
     setIsRecording(false);
@@ -1205,14 +1218,16 @@ export default memo(function MessageInput({ chatId, isBlocked, blockedByOther, o
               <Smile size={20} />
             </button>
             <AnimatePresence>
-              {showEmoji && (
-                <motion.div
-                  initial={{ opacity: 0, y: 40 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: 40 }}
-                  transition={{ type: 'spring', stiffness: 400, damping: 30 }}
-                  className={`fixed inset-x-0 bottom-0 z-50 md:absolute md:inset-x-auto md:right-0 md:bottom-auto md:transform-none ${emojiAbove ? 'md:bottom-[calc(100%+12px)]' : 'md:top-[calc(100%+12px)]'}`}
-                >
+              {showEmoji && (() => {
+                const picker = (
+                  <motion.div
+                    initial={{ opacity: 0, y: 40 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: 40 }}
+                    transition={{ type: 'spring', stiffness: 400, damping: 30 }}
+                    className={`md:absolute md:inset-x-auto md:right-0 md:bottom-auto md:transform-none ${emojiAbove ? 'md:bottom-[calc(100%+12px)]' : 'md:top-[calc(100%+12px)]'}`}
+                    style={{ position: 'fixed', left: 0, right: 0, bottom: 0, top: 'auto', zIndex: 50 } as React.CSSProperties}
+                  >
                   <Suspense fallback={<div className="w-80 h-96 bg-surface-secondary rounded-2xl animate-pulse" />}>
                     <EmojiPicker
                     onSelect={(emoji) => {
@@ -1267,7 +1282,11 @@ export default memo(function MessageInput({ chatId, isBlocked, blockedByOther, o
                   />
                   </Suspense>
                 </motion.div>
-              )}
+                );
+                return typeof window !== 'undefined' && window.innerWidth < 768
+                  ? createPortal(picker, document.body)
+                  : picker;
+              })()}
             </AnimatePresence>
           </div>
 

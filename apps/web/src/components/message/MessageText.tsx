@@ -1,5 +1,6 @@
 import { Suspense, lazy, useState, memo } from 'react';
 import { createPortal } from 'react-dom';
+import { motion, AnimatePresence } from 'framer-motion';
 import type { Message } from '../../lib/types';
 import { useChatStore } from '../../stores/chatStore';
 
@@ -93,15 +94,17 @@ function MessageText({ content, isMine, message, onViewProfile }: MessageTextPro
 
       {/* Link confirmation modal — portal to escape parent transforms */}
       {showLinkModal && pendingLink && createPortal(
-        <LinkConfirmModal
-          url={pendingLink}
-          onClose={() => { setShowLinkModal(false); setPendingLink(null); }}
-          onOpen={() => {
-            window.open(pendingLink, '_blank', 'noopener,noreferrer');
-            setShowLinkModal(false);
-            setPendingLink(null);
-          }}
-        />,
+        <AnimatePresence>
+          <LinkConfirmModal
+            url={pendingLink}
+            onClose={() => { setShowLinkModal(false); setPendingLink(null); }}
+            onOpen={() => {
+              window.open(pendingLink, '_blank', 'noopener,noreferrer');
+              setShowLinkModal(false);
+              setPendingLink(null);
+            }}
+          />
+        </AnimatePresence>,
         document.body
       )}
     </>
@@ -111,9 +114,21 @@ function MessageText({ content, isMine, message, onViewProfile }: MessageTextPro
 function LinkConfirmModal({ url, onClose, onOpen }: { url: string; onClose: () => void; onOpen: () => void }) {
   return (
     <>
-      <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[200]" onClick={onClose} />
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[200]"
+        onClick={onClose}
+      />
       <div className="fixed inset-0 flex items-center justify-center z-[201] pointer-events-none">
-        <div className="bg-surface-secondary border border-border rounded-2xl shadow-2xl p-6 mx-4 w-full max-w-md pointer-events-auto">
+        <motion.div
+          initial={{ opacity: 0, scale: 0.9, y: 20 }}
+          animate={{ opacity: 1, scale: 1, y: 0 }}
+          exit={{ opacity: 0, scale: 0.9, y: 20 }}
+          transition={{ type: 'spring', stiffness: 400, damping: 25 }}
+          className="bg-surface-secondary border border-border rounded-2xl shadow-2xl p-6 mx-4 w-full max-w-md pointer-events-auto"
+        >
           <div className="flex items-center gap-3 mb-4">
             <div className="w-12 h-12 rounded-full bg-amber-500/20 flex items-center justify-center flex-shrink-0">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-amber-400"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /><polyline points="15 3 21 3 21 9" /><line x1="10" y1="14" x2="21" y2="3" /></svg>
@@ -136,7 +151,7 @@ function LinkConfirmModal({ url, onClose, onOpen }: { url: string; onClose: () =
               Открыть
             </button>
           </div>
-        </div>
+        </motion.div>
       </div>
     </>
   );

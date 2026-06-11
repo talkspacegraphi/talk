@@ -8,6 +8,7 @@ interface LazyMediaProps {
 
 export default function LazyMedia({ children, className = '', rootMargin = '200px' }: LazyMediaProps) {
   const [isVisible, setIsVisible] = useState(false);
+  const [hasBeenVisible, setHasBeenVisible] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -18,6 +19,7 @@ export default function LazyMedia({ children, className = '', rootMargin = '200p
       ([entry]) => {
         if (entry.isIntersecting) {
           setIsVisible(true);
+          setHasBeenVisible(true);
         } else {
           setIsVisible(false);
         }
@@ -29,9 +31,12 @@ export default function LazyMedia({ children, className = '', rootMargin = '200p
     return () => observer.disconnect();
   }, [rootMargin]);
 
+  // Once media has been visible, keep it mounted (don't show placeholder again)
+  const showChildren = isVisible || hasBeenVisible;
+
   return (
     <div ref={ref} className={className}>
-      {isVisible ? children : (
+      {showChildren ? children : (
         <div className="w-full h-32 bg-white/[0.03] rounded-xl animate-pulse flex items-center justify-center">
           <div className="w-8 h-8 border-2 border-white/10 border-t-white/30 rounded-full animate-spin" />
         </div>

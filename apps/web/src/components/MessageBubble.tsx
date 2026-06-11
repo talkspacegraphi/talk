@@ -166,7 +166,14 @@ function MessageBubble({
 
   const handleMobileClick = (e: React.MouseEvent) => {
     if (selectionMode) { onToggleSelect?.(message.id); return; }
-    if (isMobile && !message.isDeleted) handleContextMenu(e);
+    if (isMobile && !message.isDeleted) {
+      if (showContext) {
+        setShowContext(false);
+        setQuotedText(null);
+      } else {
+        handleContextMenu(e);
+      }
+    }
   };
 
   // Deleted message auto-hide
