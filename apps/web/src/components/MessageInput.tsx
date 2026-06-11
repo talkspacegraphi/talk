@@ -60,6 +60,8 @@ export default memo(function MessageInput({ chatId, isBlocked, blockedByOther, o
   const isGroup = chat?.type === 'group';
   const chatMembers = (chat?.members || []).filter((m) => m.user.id !== user?.id);
   const [showEmoji, setShowEmoji] = useState(false);
+  const [emojiAbove, setEmojiAbove] = useState(false);
+  const emojiBtnRef = useRef<HTMLButtonElement>(null);
   const [showGif, setShowGif] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
@@ -1187,14 +1189,24 @@ export default memo(function MessageInput({ chatId, isBlocked, blockedByOther, o
           {/* Emoji */}
           <div className="relative mb-0.5 flex-shrink-0 self-center">
             <button
-              onClick={() => setShowEmoji(!showEmoji)}
+              ref={emojiBtnRef}
+              onClick={() => {
+                if (!showEmoji) {
+                  const btn = emojiBtnRef.current;
+                  if (btn) {
+                    const rect = btn.getBoundingClientRect();
+                    setEmojiAbove(rect.top > 400);
+                  }
+                }
+                setShowEmoji(!showEmoji);
+              }}
               className="p-2 rounded-full text-white/50 hover:text-white hover:bg-white/10 transition-colors"
             >
               <Smile size={20} />
             </button>
             <AnimatePresence>
               {showEmoji && (
-                <div className="fixed inset-x-0 bottom-0 z-50 md:absolute md:inset-x-auto md:right-0 md:bottom-auto md:top-[calc(100%+12px)]">
+                <div className={`fixed inset-x-0 bottom-0 z-50 md:absolute md:inset-x-auto md:right-0 md:bottom-auto ${emojiAbove ? 'md:bottom-[calc(100%+12px)]' : 'md:top-[calc(100%+12px)]'}`}>
                   <Suspense fallback={<div className="w-80 h-96 bg-surface-secondary rounded-2xl animate-pulse" />}>
                     <EmojiPicker
                     onSelect={(emoji) => {
@@ -1204,6 +1216,7 @@ export default memo(function MessageInput({ chatId, isBlocked, blockedByOther, o
                         return next;
                       });
                       inputRef.current?.focus();
+                      setShowEmoji(false);
                     }}
                     onSelectGif={(gifUrl) => {
                       const socket = getSocket();

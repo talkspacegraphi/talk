@@ -198,7 +198,7 @@ function MessageBubble({
     <>
       <motion.div
         ref={bubbleRef}
-        className={`flex ${isMine ? 'justify-end' : 'justify-start'} group mb-0.5 relative transition-colors duration-200 ${selectionMode ? 'px-4 -mx-4 cursor-pointer hover:bg-white/5 rounded-xl' : ''
+        className={`flex ${isMine ? 'justify-end' : 'justify-start'} group mb-0.5 relative transition-colors duration-200 ${selectionMode ? 'pl-10 pr-4 cursor-pointer hover:bg-white/5 rounded-xl' : ''
           } ${isSelected ? 'bg-vortex-500/10 hover:bg-vortex-500/20' : ''} ${message.pending && !message.failed ? 'opacity-80' : ''} ${message.failed ? 'opacity-60 ring-1 ring-red-500/40 rounded-2xl' : ''}`}
         onClick={handleMobileClick}
         onContextMenu={handleContextMenu}

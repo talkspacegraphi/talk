@@ -293,13 +293,36 @@ export const useChatStore = create<ChatState>((set, get) => ({
       // Если уже пришло реальное — игнорируем
       if (chatMessages.some((m) => m.id === realMessage.id)) return state;
 
+      const foundOptimistic = chatMessages.some((m) => m.clientId === clientId);
+
+      if (foundOptimistic) {
+        // Replace optimistic with real message
+        const updatedMessages = {
+          ...state.messages,
+          [realMessage.chatId]: chatMessages.map((m) =>
+            m.clientId === clientId ? { ...realMessage, pending: false, clientId } : m
+          ),
+        };
+        return { messages: updatedMessages };
+      }
+
+      // No optimistic message found (e.g. media messages) — add the real message directly
+      const updatedChatMessages = [...chatMessages, { ...realMessage, pending: false }];
       const updatedMessages = {
         ...state.messages,
-        [realMessage.chatId]: chatMessages.map((m) =>
-          m.clientId === clientId ? { ...realMessage, pending: false, clientId } : m
-        ),
+        [realMessage.chatId]: updatedChatMessages,
       };
-      return { messages: updatedMessages };
+
+      // Move chat to top of sidebar
+      const chatIndex = state.chats.findIndex(c => c.id === realMessage.chatId);
+      if (chatIndex === -1) return { messages: updatedMessages };
+      const chat = state.chats[chatIndex];
+      const updatedChat = { ...chat, messages: [realMessage] };
+      const newChats = chatIndex === 0
+        ? state.chats.map(c => c.id === realMessage.chatId ? updatedChat : c)
+        : [updatedChat, ...state.chats.filter(c => c.id !== realMessage.chatId)];
+
+      return { messages: updatedMessages, chats: newChats };
     });
   },
 

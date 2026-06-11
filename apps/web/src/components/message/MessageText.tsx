@@ -110,8 +110,8 @@ function LinkConfirmModal({ url, onClose, onOpen }: { url: string; onClose: () =
   return (
     <>
       <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[200]" onClick={onClose} />
-      <div className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-md z-[201]">
-        <div className="bg-surface-secondary border border-border rounded-2xl shadow-2xl p-6 mx-4">
+      <div className="fixed inset-0 flex items-center justify-center z-[201] pointer-events-none">
+        <div className="bg-surface-secondary border border-border rounded-2xl shadow-2xl p-6 mx-4 w-full max-w-md pointer-events-auto">
           <div className="flex items-center gap-3 mb-4">
             <div className="w-12 h-12 rounded-full bg-amber-500/20 flex items-center justify-center flex-shrink-0">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-amber-400"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /><polyline points="15 3 21 3 21 9" /><line x1="10" y1="14" x2="21" y2="3" /></svg>

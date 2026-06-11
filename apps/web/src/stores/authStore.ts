@@ -83,9 +83,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       api.setRefreshToken(refreshToken);
     }
 
-    // Retry up to 3 times in case server is still starting
+    // Retry up to 8 times in case server is still starting (Render free tier cold start: 30-50s)
     let lastError: unknown;
-    for (let attempt = 0; attempt < 3; attempt++) {
+    for (let attempt = 0; attempt < 8; attempt++) {
       try {
         const { user } = await api.getMe();
         connectSocket(token);
@@ -111,8 +111,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
           }
           break;
         }
-        if (attempt < 2) {
-          await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
+        if (attempt < 7) {
+          await new Promise(r => setTimeout(r, Math.min(1000 * (attempt + 1), 10000)));
         }
       }
     }
