@@ -2081,8 +2081,6 @@ setCallState('connected');
 
               {/* Bottom buttons — different for each state */}
               <div className="pb-12 px-6 z-10">
-              {/* Bottom buttons — different for each state */}
-              <div className="pb-12 px-6 z-10">
                 {callState === 'incoming' ? (
                   /* INCOMING: 2 big buttons — decline + accept */
                   <div className="flex items-center justify-center gap-12">
