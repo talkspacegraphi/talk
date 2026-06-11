@@ -493,22 +493,30 @@ export default memo(function MessageInput({ chatId, isBlocked, blockedByOther, o
         return;
       }
       let stream: MediaStream;
-      try {
-        stream = await navigator.mediaDevices.getUserMedia({
-          audio: isAndroidWebView()
-            ? { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
-            : true,
-        });
-      } catch (e) {
-        // Android WebView may need retry without constraints
-        if (isAndroidWebView()) {
-          console.warn('[startRecording] Audio failed, retrying for Android...');
-          await new Promise(r => setTimeout(r, 500));
-          stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        } else {
+      // On Android WebView, retry getUserMedia with delays (device may be busy after permission grant)
+      let lastError: any = null;
+      for (let attempt = 0; attempt < 8; attempt++) {
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({
+            audio: isAndroidWebView()
+              ? { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
+              : true,
+          });
+          break; // success
+        } catch (e: any) {
+          lastError = e;
+          const isNotReadable = e?.name === 'NotReadableError';
+          const isPermError = e?.name === 'NotAllowedError' || e?.name === 'NotFoundError';
+          if (isAndroidWebView() && (isNotReadable || isPermError) && attempt < 7) {
+            const delay = isNotReadable ? 2000 : 1000;
+            console.warn(`[startRecording] Attempt ${attempt + 1} failed (${e?.name}), retrying in ${delay}ms...`);
+            await new Promise(r => setTimeout(r, delay));
+            continue;
+          }
           throw e;
         }
       }
+      if (typeof stream! === 'undefined') throw lastError || new Error('getUserMedia failed');
       streamRef.current = stream;
       // Use ogg/opus for better compatibility, fallback to webm
       let mimeType = 'audio/webm';

@@ -73,8 +73,8 @@ async function getMediaWithCameraFallback(
     throw new Error('navigator.mediaDevices is not available. Calls require HTTPS or localhost.');
   }
 
-  // Helper: try getUserMedia with retries on Android (permission dialog takes time)
-  const tryWithRetries = async (constraints: MediaStreamConstraints, maxRetries = 10): Promise<MediaStream> => {
+  // Helper: try getUserMedia with retries on Android (permission dialog takes time, device may be busy)
+  const tryWithRetries = async (constraints: MediaStreamConstraints, maxRetries = 15): Promise<MediaStream> => {
     for (let attempt = 0; attempt < maxRetries; attempt++) {
       try {
         const stream = await navigator.mediaDevices.getUserMedia(constraints);
@@ -83,10 +83,28 @@ async function getMediaWithCameraFallback(
       } catch (e: any) {
         const isLast = attempt === maxRetries - 1;
         const isPermError = e?.name === 'NotAllowedError' || e?.name === 'NotFoundError';
+        const isNotReadable = e?.name === 'NotReadableError';
         nativeCallLog(`getUserMedia attempt ${attempt + 1} FAILED: ${e?.name} - ${e?.message}`);
-        if (isAndroidWebView() && isPermError && !isLast) {
-          console.log(`[getMedia] Attempt ${attempt + 1} failed (${e?.name}), retrying in 1s...`);
-          await new Promise(r => setTimeout(r, 1000));
+
+        if (isAndroidWebView() && (isPermError || isNotReadable) && !isLast) {
+          // NotReadableError = device busy, needs longer wait
+          // NotAllowedError = permission dialog still open
+          const delay = isNotReadable ? 2000 : 1000;
+          console.log(`[getMedia] Attempt ${attempt + 1} failed (${e?.name}), retrying in ${delay}ms...`);
+          await new Promise(r => setTimeout(r, delay));
+
+          // On NotReadableError, try to release any existing streams first
+          if (isNotReadable && attempt > 0) {
+            nativeCallLog(`getUserMedia: device busy, trying minimal constraints...`);
+            try {
+              const minimalStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+              // Got it! Stop and retry with full constraints
+              minimalStream.getTracks().forEach(t => t.stop());
+              await new Promise(r => setTimeout(r, 500));
+            } catch {
+              // Still busy, continue retry loop
+            }
+          }
           continue;
         }
         throw e;
@@ -96,6 +114,18 @@ async function getMediaWithCameraFallback(
   };
 
   if (!wantVideo) {
+    // On Android, try minimal constraints first to avoid NotReadableError
+    if (isAndroidWebView()) {
+      try {
+        nativeCallLog('getUserMedia: trying minimal audio constraints first...');
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        nativeCallLog('getUserMedia: minimal audio OK, stopping and retrying with full constraints');
+        stream.getTracks().forEach(t => t.stop());
+        await new Promise(r => setTimeout(r, 300));
+      } catch {
+        nativeCallLog('getUserMedia: minimal audio failed, will retry with retries');
+      }
+    }
     const stream = await tryWithRetries({
       audio: isAndroidWebView()
         ? { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
