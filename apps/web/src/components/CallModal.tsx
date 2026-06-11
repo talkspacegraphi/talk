@@ -273,6 +273,7 @@ export default function CallModal({ isOpen, onClose, targetUser, callType: initi
   const remoteStreamRef = useRef<MediaStream | null>(null);
   const disconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const callInProgressRef = useRef(false); // guard against multiple startCall/acceptCall
+  const earpieceEnsuredRef = useRef(false); // guard: ensure earpiece is set only once per call
 
   // Refresh all devices on call connect
   const refreshAllDevices = useCallback(async () => {
@@ -1663,12 +1664,18 @@ setCallState('connected');
       }
     };
 
-    // On call connect, explicitly ensure earpiece is ON on Android.
+    // On call connect, explicitly ensure earpiece is ON on Android (once per call).
     // Without this, speaker may be left on from a previous call.
     useEffect(() => {
-      if (isAndroidWebView() && callState === 'connected') {
-        (window as any).Android?.setSpeakerOn?.(false);
+      if (callState === 'connected' && !earpieceEnsuredRef.current) {
+        earpieceEnsuredRef.current = true;
+        if (isAndroidWebView()) {
+          (window as any).Android?.setSpeakerOn?.(false);
+        }
         setIsEarpieceMode(true);
+      }
+      if (callState === 'idle' || callState === 'ended') {
+        earpieceEnsuredRef.current = false;
       }
     }, [callState]);
 
@@ -1771,7 +1778,7 @@ setCallState('connected');
     if (desired) {
       localVideoRef.current.srcObject = desired;
     }
-  });
+  }, [localStreamRef.current, screenStreamRef.current, isScreenSharing]);
 
   // Sync remote video ref with remote stream (only when srcObject actually changes)
   useEffect(() => {
