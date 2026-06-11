@@ -2059,7 +2059,29 @@ setCallState('connected');
                   </div>
                 </div>
               </div>
+</div>
 
+              {/* Local camera PIP когда камера включена но удалённого видео нет */}
+              {callState === 'connected' && hasLocalVideo && !hasRemoteVideo && (
+                <div
+                  className="absolute bottom-36 right-4 z-30 w-36 rounded-2xl overflow-hidden border-2 border-white/20 shadow-2xl bg-black"
+                  style={{ aspectRatio: '9 / 16' }}
+                >
+                  <video
+                    ref={localVideoRef}
+                    autoPlay
+                    playsInline
+                    muted
+                    className="w-full h-full object-cover"
+                  />
+                  <div className="absolute bottom-1.5 left-1.5 px-2 py-0.5 rounded-full bg-black/50 text-[10px] text-white font-medium">
+                    Вы
+                  </div>
+                </div>
+              )}
+
+              {/* Bottom buttons — different for each state */}
+              <div className="pb-12 px-6 z-10">
               {/* Bottom buttons — different for each state */}
               <div className="pb-12 px-6 z-10">
                 {callState === 'incoming' ? (
