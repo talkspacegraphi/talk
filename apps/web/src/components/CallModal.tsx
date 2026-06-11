@@ -2545,7 +2545,7 @@ setCallState('connected');
         onClose={() => setShowScreenSourcePicker(false)}
         onSelect={handleScreenSourceSelect}
       />
-    )}
+  )}
     </div>
   </>
 );
