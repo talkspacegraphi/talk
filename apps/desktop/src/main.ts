@@ -429,6 +429,12 @@ async function loadMainApp() {
 
     if (loaded && mainWindow && !mainWindow.isDestroyed()) {
       await mainWindow.loadURL(REMOTE_URL);
+      mainWindow.webContents.openDevTools();
+
+      // Log console errors from the page
+      mainWindow.webContents.on('console-message', (_event, level, message) => {
+        if (level >= 2) console.log(`[PAGE ${level}] ${message}`);
+      });
     } else if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(`
         <!DOCTYPE html>
