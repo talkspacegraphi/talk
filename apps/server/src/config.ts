@@ -47,7 +47,7 @@ export const config = {
   freeTurnUrls: [
     'turn:openrelay.metered.ca:80?transport=udp',
     'turn:openrelay.metered.ca:443?transport=tcp',
-    'turn:openrelay.metered.ca:443?transport=tls',
+    'turns:openrelay.metered.ca:443?transport=tcp',
   ],
   freeTurnUsername: 'openrelayproject',
   freeTurnCredential: 'openrelayproject',

@@ -492,11 +492,23 @@ export default memo(function MessageInput({ chatId, isBlocked, blockedByOther, o
           : 'Запись голосовых требует HTTPS');
         return;
       }
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: isAndroidWebView()
-          ? { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
-          : true,
-      });
+      let stream: MediaStream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          audio: isAndroidWebView()
+            ? { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
+            : true,
+        });
+      } catch (e) {
+        // Android WebView may need retry without constraints
+        if (isAndroidWebView()) {
+          console.warn('[startRecording] Audio failed, retrying for Android...');
+          await new Promise(r => setTimeout(r, 500));
+          stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        } else {
+          throw e;
+        }
+      }
       streamRef.current = stream;
       // Use ogg/opus for better compatibility, fallback to webm
       let mimeType = 'audio/webm';
@@ -561,6 +573,15 @@ export default memo(function MessageInput({ chatId, isBlocked, blockedByOther, o
         stream.getTracks().forEach((t) => t.stop());
         streamRef.current = null;
         const blob = new Blob(chunksRef.current, { type: mimeType });
+        if (blob.size === 0) {
+          console.warn('[voice] Empty blob, skipping upload');
+          cleanupAnalyser();
+          setIsRecording(false);
+          setIsRecordingLocked(false);
+          setRecordingTime(0);
+          recordingTimeRef.current = 0;
+          return;
+        }
         const file = new File([blob], `voice.${ext}`, { type: mimeType });
 
         try {
@@ -584,6 +605,32 @@ export default memo(function MessageInput({ chatId, isBlocked, blockedByOther, o
           }
         } catch (e) {
           console.error('Ошибка отправки голосового:', e);
+          // Retry once after delay (Android may need more time)
+          if (isAndroidWebView()) {
+            try {
+              await new Promise(r => setTimeout(r, 1000));
+              const result = await api.uploadFile(file);
+              const socket = getSocket();
+              if (socket) {
+                const voiceClientId = `local-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+                socket.emit('send_message', {
+                  chatId,
+                  clientId: voiceClientId,
+                  content: null,
+                  type: 'voice',
+                  mediaUrl: result.url,
+                  mediaType: 'voice',
+                  fileName: result.filename,
+                  fileSize: result.size,
+                  duration: recordingTimeRef.current,
+                  replyToId: replyTo?.id || null,
+                });
+                setReplyTo(null);
+              }
+            } catch (e2) {
+              console.error('[voice] Retry also failed:', e2);
+            }
+          }
         }
       };
 
@@ -717,7 +764,6 @@ export default memo(function MessageInput({ chatId, isBlocked, blockedByOther, o
     };
 
     const onTouchEnd = (e: TouchEvent) => {
-      e.preventDefault();
       e.stopPropagation();
       touchStartYRef.current = null;
       setSlideOffset(0);
