@@ -197,6 +197,10 @@ const webDistPath = path.join(__dirname, '../../../apps/web/dist');
 if (fs.existsSync(webDistPath)) {
   app.use(express.static(webDistPath));
   app.get('*', (_req, res) => {
+    // Не перехватывать socket.io и API
+    if (_req.url.startsWith('/socket.io') || _req.url.startsWith('/api')) {
+      return;
+    }
     res.sendFile(path.join(webDistPath, 'index.html'));
   });
   console.log('  ✔ Static web client served from', webDistPath);

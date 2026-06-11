@@ -27,7 +27,7 @@ export function connectSocket(token: string): Socket {
     reconnectionAttempts: 100,
     reconnectionDelay: 1000,
     reconnectionDelayMax: 10000,
-    timeout: 15000,
+    timeout: 20000,
     upgrade: true,
     rememberUpgrade: true,
   });
