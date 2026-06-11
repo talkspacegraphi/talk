@@ -49,7 +49,7 @@ app.use((_req, res, next) => {
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
   res.setHeader(
     'Content-Security-Policy',
-    "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: http: https:; font-src 'self' https://fonts.gstatic.com; connect-src 'self' ws: wss: http: https:; media-src 'self' blob:; worker-src 'self' blob:; frame-ancestors 'none'"
+    "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: blob: http: https:; font-src 'self' https://fonts.gstatic.com; connect-src 'self' ws: wss: http: https:; media-src 'self' blob:; worker-src 'self' blob:; frame-ancestors 'none'"
   );
   next();
 });
@@ -196,10 +196,11 @@ setInterval(cleanupExpiredStories, 10 * 60 * 1000);
 const webDistPath = path.join(__dirname, '../../../apps/web/dist');
 if (fs.existsSync(webDistPath)) {
   app.use(express.static(webDistPath));
+  // SPA fallback — только для путей без расширения
   app.get('*', (_req, res) => {
-    // Не перехватывать socket.io и API
-    if (_req.url.startsWith('/socket.io') || _req.url.startsWith('/api')) {
-      return;
+    const url = _req.url.split('?')[0];
+    if (url.includes('.') || url.startsWith('/socket.io') || url.startsWith('/api') || url.startsWith('/uploads')) {
+      return res.status(404).end();
     }
     res.sendFile(path.join(webDistPath, 'index.html'));
   });
