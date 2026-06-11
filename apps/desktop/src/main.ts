@@ -373,7 +373,85 @@ async function loadMainApp() {
   } else if (REMOTE_URL) {
     // Remote server mode (Render, VPS, etc.)
     console.log(`Loading from remote: ${REMOTE_URL}`);
-    await mainWindow.loadURL(REMOTE_URL);
+
+    // Show connecting screen while server wakes up
+    mainWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(`
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <style>
+          body {
+            background: #0a0e27;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            color: white;
+          }
+          .loader { text-align: center; }
+          h1 { font-size: 24px; margin-bottom: 10px; }
+          p { color: #888; font-size: 14px; }
+          .spinner {
+            width: 32px; height: 32px;
+            margin: 20px auto;
+            border: 3px solid rgba(255,255,255,0.1);
+            border-top-color: #8b5cf6;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+          }
+          @keyframes spin { to { transform: rotate(360deg); } }
+        </style>
+      </head>
+      <body>
+        <div class="loader">
+          <h1>Talk</h1>
+          <div class="spinner"></div>
+          <p>Подключение к серверу...</p>
+        </div>
+      </body>
+      </html>
+    `)}`);
+
+    // Retry loading until server is ready
+    let loaded = false;
+    for (let i = 0; i < 60; i++) {
+      try {
+        const resp = await fetch(REMOTE_URL, { method: 'HEAD' });
+        if (resp.ok || resp.status < 500) {
+          loaded = true;
+          break;
+        }
+      } catch {}
+      await new Promise(r => setTimeout(r, 1000));
+    }
+
+    if (loaded && mainWindow && !mainWindow.isDestroyed()) {
+      await mainWindow.loadURL(REMOTE_URL);
+    } else if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <style>
+            body { background: #0a0e27; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; font-family: sans-serif; color: white; }
+            .loader { text-align: center; }
+            h1 { font-size: 24px; } p { color: #888; }
+            button { margin-top: 20px; padding: 10px 30px; background: #8b5cf6; border: none; color: white; border-radius: 8px; cursor: pointer; font-size: 14px; }
+            button:hover { background: #7c3aed; }
+          </style>
+        </head>
+        <body>
+          <div class="loader">
+            <h1>Talk</h1>
+            <p>Сервер недоступен. Попробуйте позже.</p>
+            <button onclick="location.href='${REMOTE_URL}'">Повторить</button>
+          </div>
+        </body>
+        </html>
+      `)}`);
+    }
   } else {
     // Embedded server mode (offline / LAN)
     const indexPath = path.join(process.resourcesPath, 'web', 'dist', 'index.html');
