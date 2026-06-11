@@ -1818,8 +1818,8 @@ export default function CallModal({ isOpen, onClose, targetUser, callType: initi
           ) : (
             /* ========== VOICE CALL (calling / connected without video / incoming) ========== */
             <>
-              {/* Minimize button */}
-              {callState !== 'incoming' && (
+              {/* Minimize button — ONLY when connected */}
+              {callState === 'connected' && (
                 <div className="px-4 pt-12 pb-2 z-10">
                   <button onClick={() => setIsMinimized(true)} className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center text-white/70">
                     <Minus size={20} />
@@ -1827,8 +1827,15 @@ export default function CallModal({ isOpen, onClose, targetUser, callType: initi
                 </div>
               )}
 
-              {/* Avatar + name */}
+              {/* Avatar + name + status */}
               <div className="flex-1 flex flex-col items-center justify-center px-8">
+                {/* Name + status text — show always */}
+                <p className="text-xl font-bold text-white mb-1">{displayName}</p>
+                <p className="text-sm text-zinc-400 font-mono mb-6">
+                  {callState === 'calling' ? 'Вызов...' :
+                   callState === 'connected' ? formatDuration(duration) :
+                   callState === 'incoming' ? (callType === 'video' ? 'Видеозвонок' : 'Звонок') : ''}
+                </p>
                 <div className="relative mb-6">
                   {(callState === 'calling' || callState === 'connected') && (
                     <>
@@ -1874,18 +1881,8 @@ export default function CallModal({ isOpen, onClose, targetUser, callType: initi
                       <span className="text-xs text-zinc-400">Принять</span>
                     </button>
                   </div>
-                ) : callState === 'calling' ? (
-                  /* OUTGOING: only end call button */
-                  <div className="flex flex-col items-center gap-3">
-                    <div className="w-[68px] h-[68px] rounded-full bg-red-500 flex items-center justify-center text-white shadow-xl shadow-red-500/30">
-                      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M10.68 13.31a16 16 0 0 0 3.41 2.6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7 2 2 0 0 1 1.72 2v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 2.59 3.4z" transform="rotate(135 12 12)" />
-                      </svg>
-                    </div>
-                    <span className="text-xs text-zinc-500">Сбросить</span>
-                  </div>
                 ) : (
-                  /* CONNECTED (voice, no video): 4 buttons in oval */
+                  /* OUTGOING + CONNECTED: 4 buttons in oval */
                   <div className="flex items-center justify-center">
                     <div className="flex items-center gap-5 bg-white/10 rounded-full px-6 py-3.5 backdrop-blur-sm border border-white/5">
                       <button onClick={toggleEarpiece} className={`w-14 h-14 rounded-full flex items-center justify-center transition-all ${!isEarpieceMode ? 'bg-vortex-500 text-white shadow-lg shadow-vortex-500/30' : 'bg-white/10 text-white/70'}`}>
