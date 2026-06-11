@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+// framer-motion removed: caused React error #321 with React 19.
 import { Phone, PhoneOff, Video, VideoOff, Mic, MicOff, Monitor, MonitorOff, Minimize2, Volume2, ShieldCheck, ShieldOff, ChevronUp } from 'lucide-react';
 import { getSocket } from '../lib/socket';
 import { api } from '../lib/api';
@@ -737,15 +737,12 @@ export default function GroupCallModal({ isOpen, onClose, chatId, chatName, call
           playsInline
         />
       ))}
-      <AnimatePresence>
+
 
       {isMinimized && joined ? (
-        <motion.div
+        <div
           key="group-call-minimized"
-          initial={{ opacity: 0, y: 50, scale: 0.8 }}
-          animate={{ opacity: 1, y: 0, scale: 1 }}
-          exit={{ opacity: 0, y: 50, scale: 0.8 }}
-          className="fixed bottom-6 right-6 z-[100] flex items-center gap-3 px-4 py-3 rounded-2xl glass-strong shadow-2xl shadow-black/50 border border-white/10 cursor-pointer select-none"
+          className="call-modal-pop-in fixed bottom-6 right-6 z-[100] flex items-center gap-3 px-4 py-3 rounded-2xl glass-strong shadow-2xl shadow-black/50 border border-white/10 cursor-pointer select-none"
           onClick={() => setIsMinimized(false)}
         >
           <div className="relative">
@@ -772,14 +769,11 @@ export default function GroupCallModal({ isOpen, onClose, chatId, chatName, call
               <PhoneOff size={14} />
             </button>
           </div>
-        </motion.div>
+        </div>
       ) : (
-        <motion.div
+        <div
           key="group-call-overlay"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          className="fixed inset-0 z-[100] flex items-center justify-center bg-surface/90 backdrop-blur-xl overflow-hidden"
+          className="call-modal-fade-in fixed inset-0 z-[100] flex items-center justify-center bg-surface/90 backdrop-blur-xl overflow-hidden"
           onClick={() => setShowVolumeSlider(false)}
         >
           <div className="absolute inset-0 pointer-events-none opacity-40">
@@ -787,11 +781,8 @@ export default function GroupCallModal({ isOpen, onClose, chatId, chatName, call
             <div className="absolute bottom-[10%] right-[20%] w-[50vh] h-[50vh] bg-vortex-500/20 rounded-full blur-[120px] animate-float-delayed" />
           </div>
 
-          <motion.div
-            initial={{ scale: 0.9, opacity: 0, y: 20 }}
-            animate={{ scale: 1, opacity: 1, y: 0 }}
-            transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-            className="relative w-full max-w-5xl mx-4 rounded-[2.5rem] glass-strong shadow-2xl shadow-black/50 overflow-hidden border border-white/5"
+          <div
+            className="call-modal-pop-in relative w-full max-w-5xl mx-4 rounded-[2.5rem] glass-strong shadow-2xl shadow-black/50 overflow-hidden border border-white/5"
           >
             {/* Volume slider popup */}
             {showVolumeSlider && (
@@ -1001,8 +992,8 @@ export default function GroupCallModal({ isOpen, onClose, chatId, chatName, call
                 <PhoneOff size={22} />
               </button>
             </div>
-          </motion.div>
-        </motion.div>
+          </div>
+        </div>
       )}
 
       {/* Screen source picker for Electron */}
@@ -1011,7 +1002,6 @@ export default function GroupCallModal({ isOpen, onClose, chatId, chatName, call
         onClose={() => setShowScreenSourcePicker(false)}
         onSelect={handleScreenSourceSelect}
       />
-      </AnimatePresence>
     </>
   );
 }
