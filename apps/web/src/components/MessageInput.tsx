@@ -1221,12 +1221,12 @@ export default memo(function MessageInput({ chatId, isBlocked, blockedByOther, o
               {showEmoji && (() => {
                 const picker = (
                   <motion.div
-                    initial={{ opacity: 0, y: 40 }}
+                    initial={{ opacity: 0, y: isMobile ? 40 : 10 }}
                     animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: 40 }}
+                    exit={{ opacity: 0, y: isMobile ? 40 : 10 }}
                     transition={{ type: 'spring', stiffness: 400, damping: 30 }}
-                    className={`md:absolute md:inset-x-auto md:right-0 md:bottom-auto md:transform-none ${emojiAbove ? 'md:bottom-[calc(100%+12px)]' : 'md:top-[calc(100%+12px)]'}`}
-                    style={{ position: 'fixed', left: 0, right: 0, bottom: 0, top: 'auto', zIndex: 50 } as React.CSSProperties}
+                    className={isMobile ? '' : `absolute ${emojiAbove ? 'bottom-[calc(100%+12px)]' : 'top-[calc(100%+12px)]'} right-0`}
+                    style={isMobile ? { position: 'fixed', left: 0, right: 0, bottom: 0, top: 'auto', zIndex: 50 } as React.CSSProperties : undefined}
                   >
                   <Suspense fallback={<div className="w-80 h-96 bg-surface-secondary rounded-2xl animate-pulse" />}>
                     <EmojiPicker
@@ -1283,7 +1283,7 @@ export default memo(function MessageInput({ chatId, isBlocked, blockedByOther, o
                   </Suspense>
                 </motion.div>
                 );
-                return typeof window !== 'undefined' && window.innerWidth < 768
+                return isMobile
                   ? createPortal(picker, document.body)
                   : picker;
               })()}

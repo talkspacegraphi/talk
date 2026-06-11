@@ -493,7 +493,6 @@ export default function UserProfile({ userId, chatId, onClose, isSelf, onStartCa
               ))}
             </div>
             <div className="min-h-[160px] bg-white/[0.02] border-t border-white/5 relative">
-              <div className="absolute top-0 inset-x-0 h-px bg-gradient-to-r from-transparent via-vortex-500/50 to-transparent" />
               {tabLoading ? (
                 <div className="flex items-center justify-center py-8">
                   <Loader2 size={20} className="animate-spin text-zinc-500" />

@@ -58,6 +58,7 @@ function MessageBubble({
   const [show67Modal, setShow67Modal] = useState(false);
   const audioRef67 = useRef<HTMLAudioElement>(null);
   const bubbleRef = useRef<HTMLDivElement>(null);
+  const bubbleContentRef = useRef<HTMLDivElement>(null);
   const [longPressTimer, setLongPressTimer] = useState<NodeJS.Timeout | null>(null);
   const [touchStartPos, setTouchStartPos] = useState<{ x: number; y: number } | null>(null);
 
@@ -167,6 +168,9 @@ function MessageBubble({
   const handleMobileClick = (e: React.MouseEvent) => {
     if (selectionMode) { onToggleSelect?.(message.id); return; }
     if (isMobile && !message.isDeleted) {
+      // Only open context menu if click is on the actual bubble content, not empty space
+      const target = e.target as Node;
+      if (!bubbleContentRef.current?.contains(target)) return;
       if (showContext) {
         setShowContext(false);
         setQuotedText(null);
@@ -281,6 +285,7 @@ function MessageBubble({
 
           {/* Bubble */}
           <div
+            ref={bubbleContentRef}
             onContextMenu={handleContextMenu}
             onDoubleClick={handleReply}
             title={t('reply') ? `${t('reply')} (Double Click)` : 'Double click to reply'}

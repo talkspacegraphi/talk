@@ -1295,6 +1295,7 @@ export default function ChatView({ onStartCall, onStartGroupCall, profileUserId,
       {/* Ввод сообщения */}
       {selectionMode && isMobile ? (
         <motion.div
+          layout
           initial={{ y: 80, opacity: 0 }}
           animate={{ y: 0, opacity: 1 }}
           exit={{ y: 80, opacity: 0 }}

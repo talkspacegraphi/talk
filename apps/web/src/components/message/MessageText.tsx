@@ -119,7 +119,7 @@ function LinkConfirmModal({ url, onClose, onOpen }: { url: string; onClose: () =
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
         className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[200]"
-        onClick={onClose}
+        onClick={(e) => { e.stopPropagation(); onClose(); }}
       />
       <div className="fixed inset-0 flex items-center justify-center z-[201] pointer-events-none">
         <motion.div
@@ -143,7 +143,7 @@ function LinkConfirmModal({ url, onClose, onOpen }: { url: string; onClose: () =
             <p className="text-sm text-vortex-400 break-all">{url}</p>
           </div>
           <div className="flex gap-3">
-            <button onClick={onClose} className="flex-1 px-4 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-zinc-300 hover:text-white transition-all text-sm font-medium">
+            <button onClick={(e) => { e.stopPropagation(); onClose(); }} className="flex-1 px-4 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-zinc-300 hover:text-white transition-all text-sm font-medium">
               Отмена
             </button>
             <button onClick={onOpen} className="flex-1 px-4 py-2.5 rounded-xl bg-vortex-500 hover:bg-vortex-600 text-white transition-all text-sm font-medium flex items-center justify-center gap-2">

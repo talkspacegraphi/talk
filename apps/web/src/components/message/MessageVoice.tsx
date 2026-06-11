@@ -23,7 +23,7 @@ function MessageVoice({ media, isMine }: MessageVoiceProps) {
 
   useEffect(() => {
     if (voiceMedia.url) {
-      extractWaveform(voiceMedia.url, 28).then(setWaveformBars);
+      extractWaveform(voiceMedia.url, 32).then(setWaveformBars);
     }
   }, [voiceMedia.url]);
 
@@ -54,7 +54,6 @@ function MessageVoice({ media, isMine }: MessageVoiceProps) {
     };
   }, []);
 
-  // Pause audio when scrolled off-screen to free resources
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio || !isPlaying) return;
@@ -86,8 +85,12 @@ function MessageVoice({ media, isMine }: MessageVoiceProps) {
     return `${m}:${s.toString().padStart(2, '0')}`;
   };
 
+  const progress = audioProgress / 100;
+  const currentTime = audioRef.current?.currentTime || 0;
+  const totalDuration = audioDuration || voiceMedia.duration || 0;
+
   return (
-    <div ref={containerRef} onClick={e => e.stopPropagation()} onTouchStart={e => e.stopPropagation()} className="flex items-center gap-3 w-full max-w-[260px] md:max-w-[280px] py-1 overflow-hidden">
+    <div ref={containerRef} onClick={e => e.stopPropagation()} onTouchStart={e => e.stopPropagation()} className="w-full max-w-[300px] md:max-w-[320px]">
       <audio
         ref={audioRef}
         src={voiceMedia.url}
@@ -97,60 +100,81 @@ function MessageVoice({ media, isMine }: MessageVoiceProps) {
           console.error('Audio load error:', target.error?.message || 'Unknown error');
         }}
       />
-      <button
-        onClick={toggleAudio}
-        className={`w-11 h-11 md:w-12 md:h-12 rounded-full flex items-center justify-center flex-shrink-0 transition-all duration-200 shadow-lg ${
-          isMine
-            ? 'bg-white/25 hover:bg-white/35 active:scale-95 shadow-white/10'
-            : 'bg-gradient-to-br from-vortex-500 to-vortex-600 hover:from-vortex-600 hover:to-vortex-700 active:scale-95 shadow-vortex-500/30'
-        }`}
-      >
-        {isPlaying ? (
-          <Pause size={18} className="text-white drop-shadow-sm" fill="currentColor" />
-        ) : (
-          <Play size={18} className="text-white ml-0.5 drop-shadow-sm" fill="currentColor" />
-        )}
-      </button>
-      <div className="flex-1 min-w-0">
-        <div
-          className="flex items-end gap-[3px] md:gap-1 h-8 md:h-9 cursor-pointer group flex-1 min-w-0 overflow-hidden"
-          onClick={(e) => {
-            const audio = audioRef.current;
-            if (!audio || !audio.duration) return;
-            const rect = e.currentTarget.getBoundingClientRect();
-            const pct = (e.clientX - rect.left) / rect.width;
-            audio.currentTime = pct * audio.duration;
-            setAudioProgress(pct * 100);
-            if (!isPlaying) toggleAudio();
-          }}
+
+      {/* Main container — pill shape */}
+      <div className={`flex items-center gap-2.5 px-3 py-2.5 rounded-2xl backdrop-blur-sm ${
+        isMine
+          ? 'bg-white/10'
+          : 'bg-black/10'
+      }`}>
+        {/* Play/Pause button */}
+        <button
+          onClick={toggleAudio}
+          className={`relative w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 transition-all duration-200 ${
+            isMine
+              ? 'bg-white/20 hover:bg-white/30 active:scale-90'
+              : 'bg-vortex-500 hover:bg-vortex-600 active:scale-90 shadow-lg shadow-vortex-500/25'
+          }`}
         >
-          {(waveformBars || Array(28).fill(0.5)).map((val, i) => {
-            const barHeight = Math.max(15, val * 100);
-            const progress = audioProgress / 100;
-            const barProgress = i / 28;
-            const isActive = barProgress < progress;
-            return (
-              <div
-                key={i}
-                className={`flex-1 rounded-full transition-all duration-150 ${
-                  isActive
-                    ? isMine ? 'bg-white shadow-sm' : 'bg-vortex-300 shadow-sm'
-                    : isMine ? 'bg-white/30 group-hover:bg-white/40' : 'bg-white/20 group-hover:bg-white/30'
-                }`}
-                style={{ height: `${barHeight}%`, minWidth: '2px' }}
-              />
-            );
-          })}
-        </div>
-        <div className="flex items-center justify-between mt-1.5">
-          <span className={`text-xs font-medium ${isMine ? 'text-white/80' : 'text-zinc-400'}`}>
-            {isPlaying
-              ? formatDuration(audioRef.current?.currentTime || 0)
-              : formatDuration(audioDuration || voiceMedia.duration || 0)}
-          </span>
-          <span className={`text-[10px] font-medium ${isMine ? 'text-white/60' : 'text-zinc-500'}`}>
-            {isPlaying ? 'Воспроизведение...' : 'Голосовое'}
-          </span>
+          {/* Ripple animation when playing */}
+          {isPlaying && (
+            <span className={`absolute inset-0 rounded-full animate-ping ${
+              isMine ? 'bg-white/10' : 'bg-vortex-400/30'
+            }`} style={{ animationDuration: '1.5s' }} />
+          )}
+          {isPlaying ? (
+            <Pause size={16} className="text-white relative z-10" fill="currentColor" />
+          ) : (
+            <Play size={16} className="text-white ml-0.5 relative z-10" fill="currentColor" />
+          )}
+        </button>
+
+        {/* Waveform + time */}
+        <div className="flex-1 min-w-0">
+          {/* Waveform */}
+          <div
+            className="flex items-center gap-[2px] h-7 cursor-pointer"
+            onClick={(e) => {
+              const audio = audioRef.current;
+              if (!audio || !audio.duration) return;
+              const rect = e.currentTarget.getBoundingClientRect();
+              const pct = (e.clientX - rect.left) / rect.width;
+              audio.currentTime = pct * audio.duration;
+              setAudioProgress(pct * 100);
+              if (!isPlaying) toggleAudio();
+            }}
+          >
+            {(waveformBars || Array(32).fill(0.5)).map((val, i) => {
+              const barHeight = Math.max(4, val * 28);
+              const barProgress = i / 32;
+              const isActive = barProgress < progress;
+              return (
+                <div
+                  key={i}
+                  className="flex-1 rounded-full transition-all duration-100"
+                  style={{
+                    height: `${barHeight}px`,
+                    minWidth: '1.5px',
+                    backgroundColor: isActive
+                      ? isMine ? 'rgba(255,255,255,0.9)' : 'rgb(139, 92, 246)'
+                      : isMine ? 'rgba(255,255,255,0.25)' : 'rgba(255,255,255,0.15)',
+                  }}
+                />
+              );
+            })}
+          </div>
+
+          {/* Time info */}
+          <div className="flex items-center justify-between mt-1">
+            <span className={`text-[11px] tabular-nums font-medium ${isMine ? 'text-white/70' : 'text-zinc-400'}`}>
+              {isPlaying ? formatDuration(currentTime) : formatDuration(totalDuration)}
+            </span>
+            {isPlaying && (
+              <span className={`text-[10px] font-medium ${isMine ? 'text-white/50' : 'text-zinc-500'}`}>
+                {formatDuration(totalDuration - currentTime)}
+              </span>
+            )}
+          </div>
         </div>
       </div>
     </div>
