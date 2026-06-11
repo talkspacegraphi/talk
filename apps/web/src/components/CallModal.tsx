@@ -6,6 +6,7 @@ import { api } from '../lib/api';
 import { useLang } from '../lib/i18n';
 import { playCallRingtone, stopCallRingtone, playUnavailableSound } from '../lib/sounds';
 import ScreenSourcePicker from './ScreenSourcePicker';
+import { isAndroidWebView } from '../lib/utils';
 
 type CallState = 'idle' | 'calling' | 'incoming' | 'connected' | 'ended';
 
@@ -331,7 +332,12 @@ export default function CallModal({ isOpen, onClose, targetUser, callType: initi
       }
       if (remoteAudioRef.current) {
         remoteAudioRef.current.srcObject = stream;
-        remoteAudioRef.current.play().catch(() => { });
+        const tryPlay = () => {
+          remoteAudioRef.current?.play().catch(() => {
+            if (isAndroidWebView()) setTimeout(tryPlay, 500);
+          });
+        };
+        tryPlay();
       }
 
       // Track future additions/removals
@@ -638,6 +644,7 @@ export default function CallModal({ isOpen, onClose, targetUser, callType: initi
   // Noise gate with look-ahead: analyse undelayed signal, gate delayed signal
   // This prevents clipping word beginnings and rejects short transients (clicks)
   const applyNoiseGate = useCallback(async () => {
+    if (isAndroidWebView()) return; // AudioContext.createMediaStreamDestination is broken in Android WebView
     const pc = peerRef.current;
     if (!pc || !localStreamRef.current) return;
     const rawTrack = localStreamRef.current.getAudioTracks()[0];

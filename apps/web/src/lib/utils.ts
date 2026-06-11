@@ -4,6 +4,13 @@ export function cn(...inputs: ClassValue[]) {
   return clsx(inputs);
 }
 
+/** Detect Android WebView — Web Audio API (AudioContext.createMediaStreamDestination) is broken there */
+export function isAndroidWebView(): boolean {
+  if (typeof window === 'undefined') return false;
+  const ua = navigator.userAgent || '';
+  return /Android/i.test(ua) && /wv|WebView/i.test(ua);
+}
+
 export function formatTime(date: string | Date, lang: string = 'ru'): string {
   const d = new Date(date);
   return d.toLocaleTimeString(lang === 'ru' ? 'ru-RU' : 'en-US', { hour: '2-digit', minute: '2-digit' });
@@ -101,9 +108,9 @@ export async function extractWaveform(url: string, bars: number = 28): Promise<n
   const cached = waveformCache.get(url);
   if (cached) return cached;
 
-  // Skip AudioContext in Electron — causes render-process crashes
+  // Skip AudioContext in Electron or Android WebView — causes crashes/silence
   const isElectron = typeof window !== 'undefined' && !!(window as any).electronAPI;
-  if (isElectron) {
+  if (isElectron || isAndroidWebView()) {
     const placeholder = Array.from({ length: bars }, (_, i) =>
       0.3 + 0.4 * Math.sin((i / bars) * Math.PI * 2 + Math.random() * 0.5)
     );

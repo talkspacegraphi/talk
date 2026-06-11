@@ -5,6 +5,7 @@ import { getSocket } from '../lib/socket';
 import { api } from '../lib/api';
 import { useLang } from '../lib/i18n';
 import ScreenSourcePicker from './ScreenSourcePicker';
+import { isAndroidWebView } from '../lib/utils';
 
 interface ParticipantInfo {
   id: string;
@@ -160,7 +161,12 @@ export default function GroupCallModal({ isOpen, onClose, chatId, chatName, call
       if (audioEl && audioEl.srcObject !== remoteStream) {
         audioEl.srcObject = remoteStream;
         audioEl.volume = remoteVolume;
-        audioEl.play().catch(() => {});
+        const tryPlay = () => {
+          audioEl?.play().catch(() => {
+            if (isAndroidWebView()) setTimeout(tryPlay, 500);
+          });
+        };
+        tryPlay();
       }
 
       forceUpdate(n => n + 1);
@@ -363,6 +369,7 @@ export default function GroupCallModal({ isOpen, onClose, chatId, chatName, call
 
   // Noise gate with look-ahead: analyse undelayed signal, gate delayed signal
   const applyNoiseGate = useCallback(async () => {
+    if (isAndroidWebView()) return; // AudioContext.createMediaStreamDestination is broken in Android WebView
     if (!localStreamRef.current) return;
     const rawTrack = localStreamRef.current.getAudioTracks()[0];
     if (!rawTrack) return;
