@@ -281,6 +281,7 @@ export default function CallModal({ isOpen, onClose, targetUser, callType: initi
   // effects, which is why the local preview didn't show until the remote
   // video started flowing).
   const [localStreamVersion, setLocalStreamVersion] = useState(0);
+  const [hasLocalVideoState, setHasLocalVideoState] = useState(false);
 
   // Refresh all devices on call connect
   const refreshAllDevices = useCallback(async () => {
@@ -348,8 +349,8 @@ const toggleEarpiece = useCallback(async () => {
     } catch (e) { console.warn('Speaker switch failed:', e); }
     // Also adjust volume for earpiece mode
     if (remoteAudioRef.current) {
-      remoteAudioRef.current.volume = newMode ? 0.6 : 1;
-    }
+  remoteAudioRef.current.volume = 1;
+}
   }, [isEarpieceMode]);
 
   // Toggle camera on mobile (with permission request)
@@ -378,6 +379,7 @@ const toggleEarpiece = useCallback(async () => {
           setLocalStreamVersion(v => v + 1);
           setIsVideoOff(false);
           setCallType('video');
+          setHasLocalVideoState(true); // ← добавить
           const offer = await peerRef.current.createOffer();
           await peerRef.current.setLocalDescription(offer);
           getSocket()?.emit('renegotiate', { targetUserId: targetUserIdRef.current, offer: peerRef.current.localDescription });
@@ -396,6 +398,7 @@ const toggleEarpiece = useCallback(async () => {
         const newOff = videoTracks[0].enabled;
         videoTracks.forEach(t => { t.enabled = !newOff; });
         setIsVideoOff(newOff);
+        setHasLocalVideoState(!newOff); // ← добавить
         // Replace track with null or re-add
         const sender = peerRef.current?.getSenders().find(s => s.track?.kind === 'video');
         if (sender && peerRef.current) {
@@ -488,6 +491,7 @@ const toggleEarpiece = useCallback(async () => {
     setDuration(0);
     setIsMuted(false);
     setIsVideoOff(false);
+    setHasLocalVideoState(false); // ← добавить
     setIsScreenSharing(false);
     setHasRemoteVideo(false);
     setIsFullscreen(false);
@@ -867,9 +871,11 @@ setCallState('connected');
       // Force earpiece BEFORE notifying Android, so the audio route is set
       // to earpiece before the WebRTC audio actually starts flowing.
       if (isAndroidWebView()) {
-        (window as any).Android?.setSpeakerOn?.(false);
-        (window as any).Android?.onCallStarted?.();
-      }
+  setTimeout(() => {
+    (window as any).Android?.setSpeakerOn?.(false);
+  }, 300);
+  (window as any).Android?.onCallStarted?.();
+}
     } catch (err: any) {
       console.error('Error accepting call:', err);
       nativeCallLog(`acceptCall ERROR: ${err?.name} - ${err?.message}`);
@@ -1653,10 +1659,12 @@ setCallState('connected');
   // throws React error #321 (hooks cannot be called inside callbacks/effects).
   useEffect(() => {
     if (callState === 'connected' && !earpieceEnsuredRef.current) {
-      earpieceEnsuredRef.current = true;
-      if (isAndroidWebView()) {
-        (window as any).Android?.setSpeakerOn?.(false);
-      }
+  earpieceEnsuredRef.current = true;
+  if (isAndroidWebView()) {
+    setTimeout(() => {
+      (window as any).Android?.setSpeakerOn?.(false);
+    }, 500);
+  }
       setIsEarpieceMode(true);
     }
     if (callState === 'idle' || callState === 'ended') {
@@ -1692,9 +1700,11 @@ setCallState('connected');
       timerRef.current = setInterval(() => setDuration((d) => d + 1), 1000);
       // Force earpiece BEFORE notifying Android (see comment in acceptCall).
       if (isAndroidWebView()) {
-        (window as any).Android?.setSpeakerOn?.(false);
-        (window as any).Android?.onCallStarted?.();
-      }
+  setTimeout(() => {
+    (window as any).Android?.setSpeakerOn?.(false);
+  }, 300);
+  (window as any).Android?.onCallStarted?.();
+}
     };
 
     const onIceCandidate = (data: { from: string; candidate: RTCIceCandidateInit }) => {
@@ -1802,14 +1812,17 @@ setCallState('connected');
   // localStreamVersion is a state counter bumped whenever a track is added/removed,
   // so this effect actually re-runs (refs don't trigger effects).
   useEffect(() => {
-    if (!localVideoRef.current) return;
-    const desired = isScreenSharing && screenStreamRef.current
-      ? screenStreamRef.current
-      : localStreamRef.current;
-    if (desired) {
-      localVideoRef.current.srcObject = desired;
-    }
-  }, [localStreamVersion, isScreenSharing]);
+  if (!localVideoRef.current) return;
+  const desired = isScreenSharing && screenStreamRef.current
+    ? screenStreamRef.current
+    : localStreamRef.current;
+  if (desired) {
+    localVideoRef.current.srcObject = desired;
+    // Обновляем стейт чтобы PIP отобразился
+    const hasVideo = desired.getVideoTracks().some(t => t.enabled && t.readyState === 'live');
+    setHasLocalVideoState(hasVideo || isScreenSharing);
+  }
+}, [localStreamVersion, isScreenSharing]);
 
   // Sync remote video ref with remote stream (only when srcObject actually changes)
   useEffect(() => {
@@ -1853,9 +1866,7 @@ setCallState('connected');
 
   const isElectron = typeof window !== 'undefined' && !!(window as any).electronAPI;
   const showVideoArea = callState === 'connected' && (hasRemoteVideo || (callType === 'video' && (!isVideoOff || isScreenSharing)));
-  const hasLocalVideo = !!(
-    localStreamRef.current?.getVideoTracks().some(t => t.enabled) || isScreenSharing
-  );
+  const hasLocalVideo = hasLocalVideoState || isScreenSharing;
 
   return (
     <>
