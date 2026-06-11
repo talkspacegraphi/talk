@@ -2124,6 +2124,7 @@ setCallState('connected');
             </>
           )}
         </div>
+      </div>
       )}
 
       {/* === MINIMIZED VIEW === */}
