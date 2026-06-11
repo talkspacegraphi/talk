@@ -41,6 +41,14 @@ export const config = {
   /** Shared secret for TURN server (coturn static-auth-secret) */
   turnSecret: process.env.TURN_SECRET || '',
   /** STUN server URLs */
-  stunUrls: (process.env.STUN_URLS || 'stun:stun.l.google.com:19302,stun:stun1.l.google.com:19302')
+  stunUrls: (process.env.STUN_URLS || 'stun:stun.l.google.com:19302,stun:stun1.l.google.com:19302,stun:stun2.l.google.com:19302,stun:stun3.l.google.com:19302')
     .split(',').map(s => s.trim()).filter(Boolean),
+  /** Free public TURN servers as fallback for mobile NAT traversal */
+  freeTurnUrls: [
+    'turn:openrelay.metered.ca:80?transport=udp',
+    'turn:openrelay.metered.ca:443?transport=tcp',
+    'turn:openrelay.metered.ca:443?transport=tls',
+  ],
+  freeTurnUsername: 'openrelayproject',
+  freeTurnCredential: 'openrelayproject',
 };

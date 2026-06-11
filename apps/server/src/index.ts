@@ -152,6 +152,18 @@ app.get('/api/ice-servers', authenticateToken, (_req: AuthRequest, res) => {
     });
   }
 
+  // Free public TURN servers as fallback (critical for mobile NAT traversal)
+  if (config.freeTurnUrls.length > 0) {
+    iceServers.push({
+      urls: config.freeTurnUrls,
+      username: config.freeTurnUsername,
+      credential: config.freeTurnCredential,
+    });
+  }
+
+  console.log('[ICE] Serving', iceServers.length, 'ICE server configs:',
+    iceServers.map(s => Array.isArray(s.urls) ? s.urls.length + ' urls' : s.urls));
+
   res.json({ iceServers });
 });
 

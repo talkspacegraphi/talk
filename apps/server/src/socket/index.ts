@@ -18,6 +18,9 @@ export function getOnlineUsers() {
 // ─── Active group calls: chatId → Set<userId> ────────────────────────
 const activeGroupCalls = new Map<string, Set<string>>();
 
+// Track active 1-to-1 calls: userId -> peerUserId
+const activeOneToOneCalls = new Map<string, string>();
+
 // ─── Socket rate limiting ────────────────────────────────────────────
 const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
 const RATE_LIMIT_WINDOW = 1000; // 1 second
@@ -891,6 +894,10 @@ export function setupSocket(io: Server) {
 
       const targetSockets = onlineUsers.get(data.targetUserId);
       if (targetSockets) {
+        // Track active 1-to-1 call
+        activeOneToOneCalls.set(userId, data.targetUserId);
+        activeOneToOneCalls.set(data.targetUserId, userId);
+
         // Look up caller info to send to callee
         let callerInfo: { id: string; username: string; displayName: string; avatar: string | null } | null = null;
         try {
@@ -945,6 +952,10 @@ export function setupSocket(io: Server) {
 
     // End call
     socket.on('call_end', (data: { targetUserId: string }) => {
+      // Clean up active call tracking
+      activeOneToOneCalls.delete(userId);
+      activeOneToOneCalls.delete(data.targetUserId);
+
       const targetSockets = onlineUsers.get(data.targetUserId);
       if (targetSockets) {
         for (const sid of targetSockets) {
@@ -955,6 +966,10 @@ export function setupSocket(io: Server) {
 
     // Decline call
     socket.on('call_decline', (data: { targetUserId: string }) => {
+      // Clean up active call tracking
+      activeOneToOneCalls.delete(userId);
+      activeOneToOneCalls.delete(data.targetUserId);
+
       const targetSockets = onlineUsers.get(data.targetUserId);
       if (targetSockets) {
         for (const sid of targetSockets) {
@@ -1232,6 +1247,19 @@ export function setupSocket(io: Server) {
     // Отключение
     socket.on('disconnect', async () => {
       console.log(`Пользователь отключился: ${userId}`);
+
+      // Notify 1-to-1 call partner if in active call
+      const callPartner = activeOneToOneCalls.get(userId);
+      if (callPartner) {
+        activeOneToOneCalls.delete(userId);
+        activeOneToOneCalls.delete(callPartner);
+        const partnerSockets = onlineUsers.get(callPartner);
+        if (partnerSockets) {
+          for (const sid of partnerSockets) {
+            io.to(sid).emit('call_ended', { from: userId });
+          }
+        }
+      }
 
       // Remove from active group calls
       for (const [chatId, participants] of activeGroupCalls) {
