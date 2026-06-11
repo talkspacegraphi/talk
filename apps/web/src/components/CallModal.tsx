@@ -2123,8 +2123,6 @@ setCallState('connected');
               </div>
             </>
           )}
-        </div>
-      )}
 
       {/* === MINIMIZED VIEW === */}
       {isMinimized && callState === 'connected' ? (
