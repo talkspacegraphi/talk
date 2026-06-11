@@ -395,22 +395,26 @@ const toggleEarpiece = useCallback(async () => {
       // Video call — toggle video track on/off
       const videoTracks = localStreamRef.current?.getVideoTracks() || [];
       if (videoTracks.length > 0) {
-        const newOff = videoTracks[0].enabled;
+        const newOff = videoTracks[0].enabled; // true = сейчас включена, значит выключаем
         videoTracks.forEach(t => { t.enabled = !newOff; });
         setIsVideoOff(newOff);
-        setHasLocalVideoState(!newOff); // ← добавить
+        setHasLocalVideoState(!newOff);
         // Replace track with null or re-add
         const sender = peerRef.current?.getSenders().find(s => s.track?.kind === 'video');
         if (sender && peerRef.current) {
           if (newOff) {
             // Turning off — replace with null
-            await sender.replaceTrack(new MediaStreamTrack());
+            await sender.replaceTrack(null);
           } else {
             // Turning on — replace with existing track
             await sender.replaceTrack(videoTracks[0]);
           }
         }
-        // Bump version so the local-preview effect re-runs and (re)attaches srcObject.
+        // Явно переприсваиваем srcObject чтобы PIP обновился немедленно
+        if (localVideoRef.current && localStreamRef.current) {
+          localVideoRef.current.srcObject = localStreamRef.current;
+        }
+        // Bump version so the local-preview effect re-runs
         setLocalStreamVersion(v => v + 1);
       }
     }
@@ -871,11 +875,16 @@ setCallState('connected');
       // Force earpiece BEFORE notifying Android, so the audio route is set
       // to earpiece before the WebRTC audio actually starts flowing.
       if (isAndroidWebView()) {
-  setTimeout(() => {
-    (window as any).Android?.setSpeakerOn?.(false);
-  }, 300);
-  (window as any).Android?.onCallStarted?.();
-}
+        // setSpeakerOn(false) должен быть вызван ДО onCallStarted
+        (window as any).Android?.setSpeakerOn?.(false);
+        setTimeout(() => {
+          (window as any).Android?.setSpeakerOn?.(false); // повторно через 300мс на случай если WebRTC сбросил
+          (window as any).Android?.onCallStarted?.();
+        }, 300);
+        setTimeout(() => {
+          (window as any).Android?.setSpeakerOn?.(false); // ещё раз через 1с
+        }, 1000);
+      }
     } catch (err: any) {
       console.error('Error accepting call:', err);
       nativeCallLog(`acceptCall ERROR: ${err?.name} - ${err?.message}`);
@@ -1659,12 +1668,14 @@ setCallState('connected');
   // throws React error #321 (hooks cannot be called inside callbacks/effects).
   useEffect(() => {
     if (callState === 'connected' && !earpieceEnsuredRef.current) {
-  earpieceEnsuredRef.current = true;
-  if (isAndroidWebView()) {
-    setTimeout(() => {
-      (window as any).Android?.setSpeakerOn?.(false);
-    }, 500);
-  }
+      earpieceEnsuredRef.current = true;
+      if (isAndroidWebView()) {
+        // Вызываем несколько раз — WebRTC иногда сбрасывает аудиомаршрут после установки соединения
+        (window as any).Android?.setSpeakerOn?.(false);
+        setTimeout(() => { (window as any).Android?.setSpeakerOn?.(false); }, 300);
+        setTimeout(() => { (window as any).Android?.setSpeakerOn?.(false); }, 800);
+        setTimeout(() => { (window as any).Android?.setSpeakerOn?.(false); }, 1500);
+      }
       setIsEarpieceMode(true);
     }
     if (callState === 'idle' || callState === 'ended') {
@@ -1700,11 +1711,15 @@ setCallState('connected');
       timerRef.current = setInterval(() => setDuration((d) => d + 1), 1000);
       // Force earpiece BEFORE notifying Android (see comment in acceptCall).
       if (isAndroidWebView()) {
-  setTimeout(() => {
-    (window as any).Android?.setSpeakerOn?.(false);
-  }, 300);
-  (window as any).Android?.onCallStarted?.();
-}
+        (window as any).Android?.setSpeakerOn?.(false);
+        setTimeout(() => {
+          (window as any).Android?.setSpeakerOn?.(false);
+          (window as any).Android?.onCallStarted?.();
+        }, 300);
+        setTimeout(() => {
+          (window as any).Android?.setSpeakerOn?.(false);
+        }, 1000);
+      }
     };
 
     const onIceCandidate = (data: { from: string; candidate: RTCIceCandidateInit }) => {
