@@ -2057,9 +2057,8 @@ setCallState('connected');
                       </div>
                     )}
                   </div>
-                </div>
-              </div>
 </div>
+              </div>
 
               {/* Local camera PIP когда камера включена но удалённого видео нет */}
               {callState === 'connected' && hasLocalVideo && !hasRemoteVideo && (
