@@ -370,13 +370,12 @@ const toggleEarpiece = useCallback(async () => {
           stream.getVideoTracks().forEach(track => {
             localStreamRef.current?.addTrack(track);
           });
-          // Сразу присваиваем srcObject — PIP рендерится только после setHasLocalVideoState(true),
-          // поэтому используем ref callback через requestAnimationFrame
+          // setHasLocalVideoState(true) рендерит <video> PIP — srcObject нужно назначить
+          // уже ПОСЛЕ рендера, поэтому используем requestAnimationFrame
           setHasLocalVideoState(true);
           setCallType('video');
           setIsVideoOff(false);
           setLocalStreamVersion(v => v + 1);
-          // Назначаем srcObject в следующем кадре — после того как React отрендерит <video>
           requestAnimationFrame(() => {
             if (localVideoRef.current && localStreamRef.current) {
               localVideoRef.current.srcObject = localStreamRef.current;
@@ -402,7 +401,6 @@ const toggleEarpiece = useCallback(async () => {
         videoTracks.forEach(t => { t.enabled = !newOff; });
         setIsVideoOff(newOff);
         setHasLocalVideoState(!newOff);
-        // Replace track with null or re-add
         const sender = peerRef.current?.getSenders().find(s => s.track?.kind === 'video');
         if (sender && peerRef.current) {
           if (newOff) {
@@ -479,7 +477,7 @@ const toggleEarpiece = useCallback(async () => {
       screenStreamRef.current.getTracks().forEach(track => track.stop());
       screenStreamRef.current = null;
     }
-    // Очищаем srcObject — иначе браузер держит медиа-сессию активной (экран не гаснет)
+    // Очищаем srcObject — браузер держит медиа активной иначе (экран не гаснет)
     if (localVideoRef.current) { localVideoRef.current.srcObject = null; }
     if (remoteVideoRef.current) { remoteVideoRef.current.srcObject = null; }
     if (remoteAudioRef.current) { remoteAudioRef.current.srcObject = null; }
@@ -880,14 +878,8 @@ const endCallSafe = useCallback(() => {
       setCallState('connected');
       timerRef.current = setInterval(() => setDuration((d) => d + 1), 1000);
       if (isAndroidWebView()) {
-        // ВАЖНО: setSpeakerOn(false) ПЕРЕД onCallStarted — иначе Android
-        // включает громкую связь при старте WebRTC и перезаписывает наш маршрут
         (window as any).Android?.setSpeakerOn?.(false);
         (window as any).Android?.onCallStarted?.();
-        // Повторяем через задержки — WebRTC может сбросить маршрут после ICE
-        setTimeout(() => { (window as any).Android?.setSpeakerOn?.(false); }, 200);
-        setTimeout(() => { (window as any).Android?.setSpeakerOn?.(false); }, 600);
-        setTimeout(() => { (window as any).Android?.setSpeakerOn?.(false); }, 1500);
       }
     } catch (err: any) {
       console.error('Error accepting call:', err);
@@ -1673,12 +1665,6 @@ const endCallSafe = useCallback(() => {
   useEffect(() => {
     if (callState === 'connected' && !earpieceEnsuredRef.current) {
       earpieceEnsuredRef.current = true;
-      if (isAndroidWebView()) {
-        (window as any).Android?.setSpeakerOn?.(false);
-        setTimeout(() => { (window as any).Android?.setSpeakerOn?.(false); }, 300);
-        setTimeout(() => { (window as any).Android?.setSpeakerOn?.(false); }, 800);
-        setTimeout(() => { (window as any).Android?.setSpeakerOn?.(false); }, 2000);
-      }
       setIsEarpieceMode(true);
     }
     if (callState === 'idle' || callState === 'ended') {
@@ -1715,9 +1701,6 @@ const endCallSafe = useCallback(() => {
       if (isAndroidWebView()) {
         (window as any).Android?.setSpeakerOn?.(false);
         (window as any).Android?.onCallStarted?.();
-        setTimeout(() => { (window as any).Android?.setSpeakerOn?.(false); }, 200);
-        setTimeout(() => { (window as any).Android?.setSpeakerOn?.(false); }, 600);
-        setTimeout(() => { (window as any).Android?.setSpeakerOn?.(false); }, 1500);
       }
     };
 
