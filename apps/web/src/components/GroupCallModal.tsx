@@ -727,7 +727,7 @@ export default function GroupCallModal({ isOpen, onClose, chatId, chatName, call
   const gridCols = totalStreams <= 1 ? 1 : totalStreams <= 4 ? 2 : 3;
 
   return (
-    <AnimatePresence>
+    <>
       {/* Hidden audio elements for each remote participant */}
       {participantList.map(p => (
         <audio
@@ -737,6 +737,7 @@ export default function GroupCallModal({ isOpen, onClose, chatId, chatName, call
           playsInline
         />
       ))}
+      <AnimatePresence>
 
       {isMinimized && joined ? (
         <motion.div
@@ -1010,6 +1011,7 @@ export default function GroupCallModal({ isOpen, onClose, chatId, chatName, call
         onClose={() => setShowScreenSourcePicker(false)}
         onSelect={handleScreenSourceSelect}
       />
-    </AnimatePresence>
+      </AnimatePresence>
+    </>
   );
 }

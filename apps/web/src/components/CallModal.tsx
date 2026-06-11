@@ -1827,9 +1827,9 @@ setCallState('connected');
   );
 
   return (
-    <AnimatePresence>
+    <>
       <audio key="remote-audio" ref={remoteAudioRef} autoPlay playsInline />
-
+      <AnimatePresence>
       {/* === MOBILE CALL UI === */}
       {isMobile && !isMinimized && (callState === 'calling' || callState === 'connected' || callState === 'incoming' || showNoAnswerScreen) && (
         <motion.div
@@ -2498,6 +2498,7 @@ setCallState('connected');
         onClose={() => setShowScreenSourcePicker(false)}
         onSelect={handleScreenSourceSelect}
       />
-    </AnimatePresence>
+      </AnimatePresence>
+    </>
   );
 }
