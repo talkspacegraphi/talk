@@ -1,5 +1,4 @@
 import { useState, useRef, useEffect, useCallback, memo, lazy, Suspense } from 'react';
-import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Send,
@@ -89,12 +88,11 @@ export default memo(function MessageInput({ chatId, isBlocked, blockedByOther, o
   const [recordingPaused, setRecordingPaused] = useState(false);
   const [touchStartY, setTouchStartY] = useState<number | null>(null);
   const [slideOffset, setSlideOffset] = useState(0);
-  const [isMobile, setIsMobile] = useState(false);
+  const [isMobile, setIsMobile] = useState(() => typeof window !== 'undefined' && window.innerWidth <= 768);
 
   // Detect mobile
   useEffect(() => {
     const checkMobile = () => setIsMobile(window.innerWidth <= 768);
-    checkMobile();
     window.addEventListener('resize', checkMobile);
     return () => window.removeEventListener('resize', checkMobile);
   }, []);
@@ -1218,18 +1216,18 @@ export default memo(function MessageInput({ chatId, isBlocked, blockedByOther, o
               <Smile size={20} />
             </button>
             <AnimatePresence>
-              {showEmoji && (() => {
-                const picker = (
-                  <motion.div
-                    initial={{ opacity: 0, y: isMobile ? 40 : 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: isMobile ? 40 : 10 }}
-                    transition={{ type: 'spring', stiffness: 400, damping: 30 }}
-                    className={isMobile ? '' : `absolute ${emojiAbove ? 'bottom-[calc(100%+12px)]' : 'top-[calc(100%+12px)]'} right-0`}
-                    style={isMobile ? { position: 'fixed', left: 0, right: 0, bottom: 0, top: 'auto', zIndex: 50 } as React.CSSProperties : undefined}
-                  >
-                  <Suspense fallback={<div className="w-80 h-96 bg-surface-secondary rounded-2xl animate-pulse" />}>
-                    <EmojiPicker
+              {showEmoji && (
+                <motion.div
+                  key="emoji-picker-portal"
+                  initial={{ opacity: 0, y: isMobile ? 40 : 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: isMobile ? 40 : 10 }}
+                  transition={{ type: 'spring', stiffness: 400, damping: 30 }}
+                  className={isMobile ? '' : `absolute ${emojiAbove ? 'bottom-[calc(100%+12px)]' : 'top-[calc(100%+12px)]'} right-0`}
+                  style={isMobile ? { position: 'fixed', left: 0, right: 0, bottom: 0, top: 'auto', zIndex: 9999 } as React.CSSProperties : undefined}
+                >
+                <Suspense fallback={<div className="w-80 h-96 bg-surface-secondary rounded-2xl animate-pulse" />}>
+                  <EmojiPicker
                     onSelect={(emoji) => {
                       setText((prev) => {
                         const next = prev + emoji;
@@ -1243,7 +1241,6 @@ export default memo(function MessageInput({ chatId, isBlocked, blockedByOther, o
                       const socket = getSocket();
                       if (socket) {
                         const gifClientId = `local-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
-                        // Оптимистично добавляем гифку в чат
                         if (user) {
                           useChatStore.getState().addOptimisticMessage({
                             id: gifClientId,
@@ -1280,14 +1277,10 @@ export default memo(function MessageInput({ chatId, isBlocked, blockedByOther, o
                     }}
                     onClose={() => setShowEmoji(false)}
                   />
-                  </Suspense>
-                </motion.div>
-                );
-                return isMobile
-                  ? createPortal(picker, document.body)
-                  : picker;
-              })()}
-            </AnimatePresence>
+                </Suspense>
+              </motion.div>
+            )}
+          </AnimatePresence>
           </div>
 
           {/* Send / Mic */}

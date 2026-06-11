@@ -144,9 +144,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
       const existing = get().messages[chatId] || [];
       const isCached = existing.length > 0;
 
-      // If cached — don't show skeleton, fetch in background
-      if (!isCached) {
-        set({ isLoadingMessages: true });
+      // Always show skeleton briefly for Telegram-like feel
+      set({ isLoadingMessages: true });
+
+      if (isCached) {
+        // Brief skeleton flash for cached chats (150ms)
+        await new Promise((r) => setTimeout(r, 150));
       }
 
       const fetched = await api.getMessages(chatId, undefined, 30);
@@ -162,7 +165,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         return {
           messages: { ...state.messages, [chatId]: merged },
           hasMore: { ...state.hasMore, [chatId]: hasMore },
-          isLoadingMessages: isCached ? state.isLoadingMessages : false,
+          isLoadingMessages: false,
         };
       });
     } catch (error) {

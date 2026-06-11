@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, memo, useMemo, lazy, Suspense } from 'react';
+import { useState, useRef, useEffect, memo, useMemo, useCallback, lazy, Suspense } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -92,6 +92,28 @@ function MessageBubble({
   const hasAudio = useMemo(() => message.type === 'audio' || media.some((m) => m.type === 'audio'), [message.type, media]);
   const hasFile = useMemo(() => media.some((m) => m.type !== 'image' && m.type !== 'voice' && m.type !== 'video' && m.type !== 'audio'), [media]);
   const hasVideo = useMemo(() => media.some((m) => m.type === 'video'), [media]);
+
+  const FAVORITES_KEY = 'vortex_favorite_gifs';
+  const [favoriteGifUrls, setFavoriteGifUrls] = useState<string[]>(() => {
+    try {
+      const favs: { url: string }[] = JSON.parse(localStorage.getItem(FAVORITES_KEY) || '[]');
+      return favs.map((f) => f.url);
+    } catch { return []; }
+  });
+
+  const handleToggleFavoriteGif = useCallback((gifUrl: string) => {
+    try {
+      const favs: { id: string; url: string; preview: string; title: string }[] = JSON.parse(localStorage.getItem(FAVORITES_KEY) || '[]');
+      const idx = favs.findIndex((f) => f.url === gifUrl);
+      if (idx >= 0) {
+        favs.splice(idx, 1);
+      } else {
+        favs.unshift({ id: gifUrl, url: gifUrl, preview: gifUrl, title: '' });
+      }
+      localStorage.setItem(FAVORITES_KEY, JSON.stringify(favs));
+      setFavoriteGifUrls(favs.map((f) => f.url));
+    } catch { /* ignore */ }
+  }, []);
 
   const senderName = message.sender?.displayName || message.sender?.username || '';
   const senderAvatar = message.sender?.avatar;
@@ -313,8 +335,8 @@ function MessageBubble({
                     media={media.filter((m) => m.type === 'image' || m.type === 'video')}
                     isMine={isMine}
                     hasContent={!!message.content}
-                    onFavoriteGif={() => {}}
-                    favoriteGifs={[]}
+                    onFavoriteGif={handleToggleFavoriteGif}
+                    favoriteGifs={favoriteGifUrls}
                   />
                 </Suspense>
               </LazyMedia>
