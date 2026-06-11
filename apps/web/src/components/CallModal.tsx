@@ -1663,6 +1663,15 @@ setCallState('connected');
       }
     };
 
+    // On call connect, explicitly ensure earpiece is ON on Android.
+    // Without this, speaker may be left on from a previous call.
+    useEffect(() => {
+      if (isAndroidWebView() && callState === 'connected') {
+        (window as any).Android?.setSpeakerOn?.(false);
+        setIsEarpieceMode(true);
+      }
+    }, [callState]);
+
     const onCallEnded = (data: { from: string }) => {
       nativeCallLog(`call_ended from=${data.from}`);
       if (callEndedRef.current) return;
@@ -1752,13 +1761,14 @@ setCallState('connected');
     }
   }, [isOpen, incoming, targetUser, callState]);
 
-  // Sync local video ref with stream (only when srcObject actually changes)
+  // Sync local video ref with stream — set unconditionally so any track additions/changes
+  // (e.g. adding video after a voice call starts) are reflected immediately.
   useEffect(() => {
     if (!localVideoRef.current) return;
     const desired = isScreenSharing && screenStreamRef.current
       ? screenStreamRef.current
       : localStreamRef.current;
-    if (desired && localVideoRef.current.srcObject !== desired) {
+    if (desired) {
       localVideoRef.current.srcObject = desired;
     }
   });
@@ -1847,9 +1857,9 @@ setCallState('connected');
                 <p className="text-sm text-white/70 font-mono text-center">{formatDuration(duration)}</p>
               </div>
 
-              {/* Local camera PIP — bottom-right */}
+              {/* Local camera PIP — bottom-right, above call buttons (z-30) */}
               {hasLocalVideo && (
-                <div className="absolute bottom-28 right-4 z-20 w-36 rounded-2xl overflow-hidden border-2 border-white/20 shadow-2xl bg-black"
+                <div className="absolute bottom-36 right-4 z-30 w-36 rounded-2xl overflow-hidden border-2 border-white/20 shadow-2xl bg-black"
                   style={{ aspectRatio: '9 / 16' }}
                 >
                   <video
@@ -1897,8 +1907,8 @@ setCallState('connected');
                 </div>
               )}
 
-              {/* 4 buttons bottom */}
-              <div className="absolute bottom-0 left-0 right-0 pb-12 pt-6 bg-gradient-to-t from-black/70 to-transparent z-20">
+              {/* 4 buttons bottom — higher z than local PIP (z-20) */}
+              <div className="absolute bottom-0 left-0 right-0 pb-12 pt-6 bg-gradient-to-t from-black/70 to-transparent z-30">
                 <div className="flex items-center justify-center">
                   <div className="flex items-center gap-5 bg-white/10 rounded-full px-6 py-3.5 backdrop-blur-sm border border-white/5">
                     <button onClick={toggleEarpiece} className={`w-14 h-14 rounded-full flex items-center justify-center transition-all ${!isEarpieceMode ? 'bg-vortex-500 text-white shadow-lg shadow-vortex-500/30' : 'bg-white/10 text-white/70'}`}>
@@ -2216,9 +2226,9 @@ setCallState('connected');
                 </div>
               )}
 
-              {/* Local video PIP (bottom-right) */}
+              {/* Local video PIP (bottom-right, above controls) */}
               {hasLocalVideo && (
-                <div className="absolute bottom-3 right-3 w-48 rounded-xl overflow-hidden border-2 border-white/20 shadow-lg bg-black z-10"
+                <div className="absolute bottom-3 right-3 w-48 rounded-xl overflow-hidden border-2 border-white/20 shadow-lg bg-black z-20"
                   style={{ aspectRatio: '16 / 9' }}
                 >
                   <video
