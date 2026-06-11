@@ -1,4 +1,5 @@
 import { Suspense, lazy, useState, memo } from 'react';
+import { createPortal } from 'react-dom';
 import type { Message } from '../../lib/types';
 import { useChatStore } from '../../stores/chatStore';
 
@@ -90,8 +91,8 @@ function MessageText({ content, isMine, message, onViewProfile }: MessageTextPro
         })}
       </p>
 
-      {/* Link confirmation modal */}
-      {showLinkModal && pendingLink && (
+      {/* Link confirmation modal — portal to escape parent transforms */}
+      {showLinkModal && pendingLink && createPortal(
         <LinkConfirmModal
           url={pendingLink}
           onClose={() => { setShowLinkModal(false); setPendingLink(null); }}
@@ -100,7 +101,8 @@ function MessageText({ content, isMine, message, onViewProfile }: MessageTextPro
             setShowLinkModal(false);
             setPendingLink(null);
           }}
-        />
+        />,
+        document.body
       )}
     </>
   );

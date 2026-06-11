@@ -1206,7 +1206,13 @@ export default memo(function MessageInput({ chatId, isBlocked, blockedByOther, o
             </button>
             <AnimatePresence>
               {showEmoji && (
-                <div className={`fixed inset-x-0 bottom-0 z-50 md:absolute md:inset-x-auto md:right-0 md:bottom-auto ${emojiAbove ? 'md:bottom-[calc(100%+12px)]' : 'md:top-[calc(100%+12px)]'}`}>
+                <motion.div
+                  initial={{ opacity: 0, y: 40 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: 40 }}
+                  transition={{ type: 'spring', stiffness: 400, damping: 30 }}
+                  className={`fixed inset-x-0 bottom-0 z-50 md:absolute md:inset-x-auto md:right-0 md:bottom-auto md:transform-none ${emojiAbove ? 'md:bottom-[calc(100%+12px)]' : 'md:top-[calc(100%+12px)]'}`}
+                >
                   <Suspense fallback={<div className="w-80 h-96 bg-surface-secondary rounded-2xl animate-pulse" />}>
                     <EmojiPicker
                     onSelect={(emoji) => {
@@ -1260,7 +1266,7 @@ export default memo(function MessageInput({ chatId, isBlocked, blockedByOther, o
                     onClose={() => setShowEmoji(false)}
                   />
                   </Suspense>
-                </div>
+                </motion.div>
               )}
             </AnimatePresence>
           </div>

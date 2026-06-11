@@ -28,8 +28,18 @@ export default function MediaGrid({ media, isMine, hasContent, onFavoriteGif, fa
   const videos = media.filter((m) => m.type === 'video');
   const totalMedia = [...images, ...videos];
 
-  const openLightbox = (index: number) => setLightboxIndex(index);
-  const closeLightbox = () => { setLightboxIndex(null); setSwipeX(0); };
+  const openLightbox = (index: number) => {
+    setLightboxIndex(index);
+    history.pushState({ lightbox: true }, '');
+  };
+  const closeLightbox = () => {
+    setLightboxIndex(null);
+    setSwipeX(0);
+    // Pop the history entry we pushed when opening (if it's ours)
+    if (history.state?.lightbox) {
+      history.back();
+    }
+  };
 
   const goPrev = useCallback(() => {
     setLightboxIndex((prev) => (prev === null ? null : prev === 0 ? totalMedia.length - 1 : prev - 1));
@@ -51,6 +61,18 @@ export default function MediaGrid({ media, isMine, hasContent, onFavoriteGif, fa
     if (lightboxIndex !== null && lightboxRef.current) {
       lightboxRef.current.focus();
     }
+  }, [lightboxIndex]);
+
+  // Android back button: popstate event closes lightbox
+  useEffect(() => {
+    const onPopState = () => {
+      if (lightboxIndex !== null) {
+        setLightboxIndex(null);
+        setSwipeX(0);
+      }
+    };
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
   }, [lightboxIndex]);
 
   useEffect(() => {
