@@ -580,6 +580,7 @@ const toggleEarpiece = useCallback(async () => {
     if (disconnectTimeoutRef.current) { clearTimeout(disconnectTimeoutRef.current); disconnectTimeoutRef.current = null; }
     stopCallRingtone();
     stopDialTone();
+    if (localStreamRef.current) {
       localStreamRef.current.getTracks().forEach(track => track.stop());
       localStreamRef.current = null;
     }
