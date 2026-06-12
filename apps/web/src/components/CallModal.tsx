@@ -6,6 +6,40 @@ import { getSocket } from '../lib/socket';
 import { api } from '../lib/api';
 import { useLang } from '../lib/i18n';
 import { playCallRingtone, stopCallRingtone, playUnavailableSound } from '../lib/sounds';
+
+// Исходящий гудок — генерируем через Web Audio API (не нужен файл)
+let dialToneCtx: AudioContext | null = null;
+let dialToneOsc: OscillatorNode | null = null;
+let dialToneGain: GainNode | null = null;
+let dialToneInterval: ReturnType<typeof setInterval> | null = null;
+
+function startDialTone() {
+  stopDialTone();
+  try {
+    dialToneCtx = new AudioContext();
+    const beep = () => {
+      if (!dialToneCtx) return;
+      dialToneOsc = dialToneCtx.createOscillator();
+      dialToneGain = dialToneCtx.createGain();
+      dialToneOsc.type = 'sine';
+      dialToneOsc.frequency.value = 440;
+      dialToneGain.gain.value = 0.18;
+      dialToneOsc.connect(dialToneGain);
+      dialToneGain.connect(dialToneCtx.destination);
+      dialToneOsc.start();
+      dialToneOsc.stop(dialToneCtx.currentTime + 0.4);
+    };
+    beep();
+    dialToneInterval = setInterval(beep, 3000);
+  } catch { /* ignore */ }
+}
+
+function stopDialTone() {
+  if (dialToneInterval) { clearInterval(dialToneInterval); dialToneInterval = null; }
+  try { dialToneOsc?.stop(); } catch { /* already stopped */ }
+  try { dialToneCtx?.close(); } catch { /* ignore */ }
+  dialToneCtx = null; dialToneOsc = null; dialToneGain = null;
+}
 import ScreenSourcePicker from './ScreenSourcePicker';
 import { isAndroidWebView, nativeCallLog } from '../lib/utils';
 
@@ -367,13 +401,12 @@ const toggleEarpiece = useCallback(async () => {
     return stream.getVideoTracks()[0];
   };
 
-  // Быстрое переключение камеры на мобиле:
-  // используем facingMode вместо enumerate+deviceId — работает мгновенно без серого экрана
+  // Быстрое переключение камеры на мобиле без чёрного экрана:
+  // сначала replaceTrack (НЕ останавливая старый трек), потом обновляем localStream
   const switchMobileCamera = useCallback(async () => {
     const pc = peerRef.current;
     if (!pc) return;
     try {
-      // Определяем текущий facing mode
       const currentTrack = localStreamRef.current?.getVideoTracks()[0];
       const currentFacing = currentTrack?.getSettings().facingMode ?? 'user';
       const nextFacing = currentFacing === 'user' ? 'environment' : 'user';
@@ -383,19 +416,21 @@ const toggleEarpiece = useCallback(async () => {
       });
       const newTrack = newStream.getVideoTracks()[0];
 
-      // Сначала показываем превью локально — ещё до replaceTrack
+      // 1) Сначала replaceTrack — не останавливая старый трек,
+      //    браузер плавно переключает без чёрного/серого кадра
+      const sender = pc.getSenders().find(s => s.track?.kind === 'video');
+      if (sender) await sender.replaceTrack(newTrack);
+
+      // 2) Теперь останавливаем старый и обновляем localStream
       if (localStreamRef.current) {
-        localStreamRef.current.getVideoTracks().forEach(t => { t.stop(); localStreamRef.current?.removeTrack(t); });
+        localStreamRef.current.getVideoTracks().forEach(t => {
+          if (t !== newTrack) { t.stop(); localStreamRef.current?.removeTrack(t); }
+        });
         localStreamRef.current.addTrack(newTrack);
       }
       if (localVideoRef.current) localVideoRef.current.srcObject = localStreamRef.current;
       if (mobilePipVideoRef.current) mobilePipVideoRef.current.srcObject = localStreamRef.current;
 
-      // Потом заменяем трек в peer connection
-      const sender = pc.getSenders().find(s => s.track?.kind === 'video');
-      if (sender) {
-        await sender.replaceTrack(newTrack);
-      }
       setActiveCameraId(newTrack.getSettings().deviceId ?? '');
     } catch (e) {
       console.warn('Camera switch failed:', e);
@@ -411,10 +446,13 @@ const toggleEarpiece = useCallback(async () => {
         const sender = pc.getSenders().find(s => s.track?.kind === 'video');
         if (sender) await sender.replaceTrack(newTrack);
         if (localStreamRef.current) {
-          localStreamRef.current.getVideoTracks().forEach(t => { t.stop(); localStreamRef.current?.removeTrack(t); });
+          localStreamRef.current.getVideoTracks().forEach(t => {
+            if (t !== newTrack) { t.stop(); localStreamRef.current?.removeTrack(t); }
+          });
           localStreamRef.current.addTrack(newTrack);
         }
         if (localVideoRef.current) localVideoRef.current.srcObject = localStreamRef.current;
+        if (mobilePipVideoRef.current) mobilePipVideoRef.current.srcObject = localStreamRef.current;
         setActiveCameraId(nextCam.deviceId);
       } catch (e2) { console.warn('Camera switch fallback failed:', e2); }
     }
@@ -541,7 +579,7 @@ const toggleEarpiece = useCallback(async () => {
     if (closeTimeoutRef.current) clearTimeout(closeTimeoutRef.current);
     if (disconnectTimeoutRef.current) { clearTimeout(disconnectTimeoutRef.current); disconnectTimeoutRef.current = null; }
     stopCallRingtone();
-    if (localStreamRef.current) {
+    stopDialTone();
       localStreamRef.current.getTracks().forEach(track => track.stop());
       localStreamRef.current = null;
     }
@@ -714,6 +752,7 @@ const endCallSafe = useCallback(() => {
     const socket = getSocket();
     socket?.emit('call_end', { targetUserId: targetUserIdRef.current });
     stopCallRingtone();
+    stopDialTone();
     setCallState('ended');
     cleanup();
     scheduleClose();
@@ -732,6 +771,9 @@ const endCallSafe = useCallback(() => {
     try {
       console.log('[startCall] Getting media, wantVideo:', callType === 'video');
       nativeCallLog('startCall: requesting getUserMedia...');
+      // Запускаем гудки сразу при начале вызова
+      playCallRingtone();
+      startDialTone();
       const { stream, hasVideo } = await getMediaWithCameraFallback(callType === 'video');
       nativeCallLog(`startCall: getUserMedia OK audio=${stream.getAudioTracks().length} video=${stream.getVideoTracks().length} hasVideo=${hasVideo}`);
       console.log('[startCall] Got media — hasVideo:', hasVideo,
@@ -790,15 +832,16 @@ const endCallSafe = useCallback(() => {
         if (callEndedRef.current) return;
         callEndedRef.current = true;
         stopCallRingtone();
-        const s = getSocket();
+        stopDialTone();
         s?.emit('call_end', { targetUserId: targetUserIdRef.current });
         cleanup();
+        // Играем звук недозвона на всех платформах
+        playUnavailableSound();
         if (isMobile) {
           setShowNoAnswerScreen(true);
           setCallState('ended');
         } else {
           setCallState('ended');
-          await playUnavailableSound();
           onClose();
         }
       }, noAnswerDelay);
@@ -980,6 +1023,8 @@ const endCallSafe = useCallback(() => {
     }
     callEndedRef.current = true;
     stopCallRingtone();
+    stopDialTone();
+    if (isAndroidWebView()) (window as any).Android?.onIncomingCallEnded?.();
     setCallState('ended');
     cleanup();
     scheduleClose();
@@ -1754,6 +1799,7 @@ const endCallSafe = useCallback(() => {
       nativeCallLog(`call_answered from=${data.from}`);
       if (callTimeoutRef.current) clearTimeout(callTimeoutRef.current);
       stopCallRingtone();
+      stopDialTone();
       console.log('[onCallAnswered] Setting remote description (answer)');
       await peerRef.current.setRemoteDescription(new RTCSessionDescription(data.answer));
       console.log('[onCallAnswered] Transceivers after answer:',
@@ -1793,6 +1839,7 @@ const endCallSafe = useCallback(() => {
       if (data.from !== targetUserIdRef.current) return;
       callEndedRef.current = true;
       stopCallRingtone();
+      stopDialTone();
       setCallState('ended');
       cleanup();
       scheduleClose();
@@ -1803,6 +1850,9 @@ const endCallSafe = useCallback(() => {
       if (data.from !== targetUserIdRef.current) return;
       callEndedRef.current = true;
       stopCallRingtone();
+      stopDialTone();
+      // Играем звук недозвона/отклонения
+      playUnavailableSound();
       setCallState('ended');
       cleanup();
       scheduleClose();
@@ -1812,6 +1862,8 @@ const endCallSafe = useCallback(() => {
       if (callEndedRef.current) return;
       callEndedRef.current = true;
       stopCallRingtone();
+      stopDialTone();
+      playUnavailableSound();
       setCallState('ended');
       cleanup();
       scheduleClose();
@@ -1873,6 +1925,11 @@ const endCallSafe = useCallback(() => {
       setCallState('incoming');
       setCallType(incoming.callType);
       playCallRingtone();
+      // Уведомляем Android — если приложение свёрнуто, покажет уведомление
+      if (isAndroidWebView()) {
+        const callerName = incoming.callerInfo?.displayName || incoming.callerInfo?.username || 'Звонок';
+        (window as any).Android?.onIncomingCall?.(callerName, incoming.callType);
+      }
     }
   }, [isOpen, incoming, targetUser, callState]);
 
@@ -1958,7 +2015,7 @@ const endCallSafe = useCallback(() => {
           <video ref={localVideoRef} autoPlay playsInline muted className="hidden" />
 
           {/* ========== CONNECTED + REMOTE VIDEO → Fullscreen remote ========== */}
-          {callState === 'connected' && hasRemoteVideo ? (
+          {callState === 'connected' && hasRemoteVideo && !isVideoOff ? (
             <>
               {/* Remote video fullscreen */}
               <div className="absolute inset-0 bg-black">
@@ -1971,10 +2028,18 @@ const endCallSafe = useCallback(() => {
                 />
               </div>
 
-              {/* Name + duration at top */}
-              <div className="absolute top-0 left-0 right-0 z-20 bg-gradient-to-b from-black/70 to-transparent pt-12 pb-8 px-4">
-                <p className="text-lg font-bold text-white text-center">{displayName}</p>
-                <p className="text-sm text-white/70 font-mono text-center">{formatDuration(duration)}</p>
+              {/* Name + duration at top + кнопка свернуть */}
+              <div className="absolute top-0 left-0 right-0 z-20 bg-gradient-to-b from-black/70 to-transparent pt-12 pb-8 px-4 flex items-start">
+                <button
+                  onClick={() => setIsMinimized(true)}
+                  className="w-10 h-10 rounded-full bg-black/50 flex items-center justify-center text-white/70 mr-3 mt-0.5 shrink-0"
+                >
+                  <Minus size={20} />
+                </button>
+                <div className="flex-1 text-center pr-12">
+                  <p className="text-lg font-bold text-white">{displayName}</p>
+                  <p className="text-sm text-white/70 font-mono">{formatDuration(duration)}</p>
+                </div>
               </div>
 
               {/* Local camera PIP — bottom-right, above call buttons (z-30) */}
