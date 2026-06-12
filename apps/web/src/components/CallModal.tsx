@@ -354,6 +354,18 @@ const toggleEarpiece = useCallback(async () => {
   }, [isEarpieceMode]);
 
   // Toggle camera on mobile (with permission request)
+  // Создаём чёрный видеотрек — отправляем вместо null когда камера выключена
+  // Это убирает "последний кадр" у собеседника
+  const createBlackVideoTrack = (): MediaStreamTrack => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 2; canvas.height = 2;
+    const ctx = canvas.getContext('2d')!;
+    ctx.fillStyle = 'black';
+    ctx.fillRect(0, 0, 2, 2);
+    const stream = (canvas as any).captureStream(1) as MediaStream;
+    return stream.getVideoTracks()[0];
+  };
+
   const toggleMobileCamera = useCallback(async () => {
     if (callType === 'voice') {
       // Upgrade to video call
@@ -401,13 +413,14 @@ const toggleEarpiece = useCallback(async () => {
         videoTracks.forEach(t => { t.enabled = !newOff; });
         setIsVideoOff(newOff);
         setHasLocalVideoState(!newOff);
-        const sender = peerRef.current?.getSenders().find(s => s.track?.kind === 'video');
         if (sender && peerRef.current) {
           if (newOff) {
-            await sender.replaceTrack(null);
+            // Выключаем — отправляем чёрный кадр вместо null
+            // чтобы у собеседника не завис последний кадр
+            const blackTrack = createBlackVideoTrack();
+            await sender.replaceTrack(blackTrack);
           } else {
             await sender.replaceTrack(videoTracks[0]);
-            // Назначаем srcObject после рендера PIP
             requestAnimationFrame(() => {
               if (localVideoRef.current && localStreamRef.current) {
                 localVideoRef.current.srcObject = localStreamRef.current;
@@ -2073,6 +2086,33 @@ const endCallSafe = useCallback(() => {
                   <div className="absolute bottom-1.5 left-1.5 px-2 py-0.5 rounded-full bg-black/50 text-[10px] text-white font-medium">
                     Вы
                   </div>
+                  {/* Кнопка переключения камеры */}
+                  <button
+                    onClick={async () => {
+                      try {
+                        const devices = await navigator.mediaDevices.enumerateDevices();
+                        const cams = devices.filter(d => d.kind === 'videoinput');
+                        if (cams.length < 2) return;
+                        const currentIdx = cams.findIndex(c => c.deviceId === activeCameraId);
+                        const nextCam = cams[(currentIdx + 1) % cams.length];
+                        const sender = peerRef.current?.getSenders().find(s => s.track?.kind === 'video');
+                        if (sender && nextCam) {
+                          const newStream = await navigator.mediaDevices.getUserMedia({ video: { deviceId: { exact: nextCam.deviceId } } });
+                          const newTrack = newStream.getVideoTracks()[0];
+                          await sender.replaceTrack(newTrack);
+                          if (localStreamRef.current) {
+                            localStreamRef.current.getVideoTracks().forEach(t => { t.stop(); localStreamRef.current?.removeTrack(t); });
+                            localStreamRef.current.addTrack(newTrack);
+                          }
+                          if (localVideoRef.current) localVideoRef.current.srcObject = localStreamRef.current;
+                          setActiveCameraId(nextCam.deviceId);
+                        }
+                      } catch (e) { console.warn('Camera switch failed:', e); }
+                    }}
+                    className="absolute top-1.5 right-1.5 w-7 h-7 rounded-full bg-black/50 flex items-center justify-center text-white"
+                  >
+                    <SwitchCamera size={14} />
+                  </button>
                 </div>
               )}
 
