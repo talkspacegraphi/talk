@@ -261,6 +261,7 @@ export default function CallModal({ isOpen, onClose, targetUser, callType: initi
   const screenStreamRef = useRef<MediaStream | null>(null);
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
+  const mobilePipVideoRef = useRef<HTMLVideoElement>(null); // PIP для мобильного UI
   const remoteAudioRef = useRef<HTMLAudioElement>(null);
   const timerRef = useRef<ReturnType<typeof setInterval>>(undefined);
   const callTimeoutRef = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -366,6 +367,59 @@ const toggleEarpiece = useCallback(async () => {
     return stream.getVideoTracks()[0];
   };
 
+  // Быстрое переключение камеры на мобиле:
+  // используем facingMode вместо enumerate+deviceId — работает мгновенно без серого экрана
+  const switchMobileCamera = useCallback(async () => {
+    const pc = peerRef.current;
+    if (!pc) return;
+    try {
+      // Определяем текущий facing mode
+      const currentTrack = localStreamRef.current?.getVideoTracks()[0];
+      const currentFacing = currentTrack?.getSettings().facingMode ?? 'user';
+      const nextFacing = currentFacing === 'user' ? 'environment' : 'user';
+
+      const newStream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { exact: nextFacing }, width: { ideal: 1280 }, height: { ideal: 720 } },
+      });
+      const newTrack = newStream.getVideoTracks()[0];
+
+      // Сначала показываем превью локально — ещё до replaceTrack
+      if (localStreamRef.current) {
+        localStreamRef.current.getVideoTracks().forEach(t => { t.stop(); localStreamRef.current?.removeTrack(t); });
+        localStreamRef.current.addTrack(newTrack);
+      }
+      if (localVideoRef.current) localVideoRef.current.srcObject = localStreamRef.current;
+      if (mobilePipVideoRef.current) mobilePipVideoRef.current.srcObject = localStreamRef.current;
+
+      // Потом заменяем трек в peer connection
+      const sender = pc.getSenders().find(s => s.track?.kind === 'video');
+      if (sender) {
+        await sender.replaceTrack(newTrack);
+      }
+      setActiveCameraId(newTrack.getSettings().deviceId ?? '');
+    } catch (e) {
+      console.warn('Camera switch failed:', e);
+      // Fallback: enumerate + deviceId
+      try {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const cams = devices.filter(d => d.kind === 'videoinput');
+        if (cams.length < 2) return;
+        const currentIdx = cams.findIndex(c => c.deviceId === activeCameraId);
+        const nextCam = cams[(currentIdx + 1) % cams.length];
+        const newStream = await navigator.mediaDevices.getUserMedia({ video: { deviceId: { exact: nextCam.deviceId } } });
+        const newTrack = newStream.getVideoTracks()[0];
+        const sender = pc.getSenders().find(s => s.track?.kind === 'video');
+        if (sender) await sender.replaceTrack(newTrack);
+        if (localStreamRef.current) {
+          localStreamRef.current.getVideoTracks().forEach(t => { t.stop(); localStreamRef.current?.removeTrack(t); });
+          localStreamRef.current.addTrack(newTrack);
+        }
+        if (localVideoRef.current) localVideoRef.current.srcObject = localStreamRef.current;
+        setActiveCameraId(nextCam.deviceId);
+      } catch (e2) { console.warn('Camera switch fallback failed:', e2); }
+    }
+  }, [activeCameraId]);
+
   const toggleMobileCamera = useCallback(async () => {
     if (callType === 'voice') {
       // Upgrade to video call
@@ -393,6 +447,10 @@ const toggleEarpiece = useCallback(async () => {
               localVideoRef.current.srcObject = localStreamRef.current;
               localVideoRef.current.play().catch(() => {});
             }
+            if (mobilePipVideoRef.current && localStreamRef.current) {
+              mobilePipVideoRef.current.srcObject = localStreamRef.current;
+              mobilePipVideoRef.current.play().catch(() => {});
+            }
           });
           const offer = await peerRef.current.createOffer();
           await peerRef.current.setLocalDescription(offer);
@@ -413,6 +471,7 @@ const toggleEarpiece = useCallback(async () => {
         videoTracks.forEach(t => { t.enabled = !newOff; });
         setIsVideoOff(newOff);
         setHasLocalVideoState(!newOff);
+        const sender = peerRef.current?.getSenders().find(s => s.track?.kind === 'video');
         if (sender && peerRef.current) {
           if (newOff) {
             // Выключаем — отправляем чёрный кадр вместо null
@@ -1828,6 +1887,10 @@ const endCallSafe = useCallback(() => {
     : localStreamRef.current;
   if (desired) {
     localVideoRef.current.srcObject = desired;
+    // Синхронизируем мобильный PIP ref
+    if (mobilePipVideoRef.current) {
+      mobilePipVideoRef.current.srcObject = desired;
+    }
     // Обновляем стейт чтобы PIP отобразился
     const hasVideo = desired.getVideoTracks().some(t => t.enabled && t.readyState === 'live');
     setHasLocalVideoState(hasVideo || isScreenSharing);
@@ -1888,8 +1951,10 @@ const endCallSafe = useCallback(() => {
           className="call-modal-fade-in fixed inset-0 z-[100] flex flex-col overflow-hidden"
           style={{ background: 'linear-gradient(180deg, #0a0a0f 0%, #111118 40%, #111118 60%, #0a0a0f 100%)' }}
         >
-          {/* Hidden video elements */}
+          {/* Постоянные видеоэлементы — всегда в DOM, ref никогда не меняется */}
           <video ref={remoteVideoRef} autoPlay playsInline muted className="hidden" />
+          {/* localVideoRef — скрытый, используется как источник srcObject.
+              Видимые PIP-элементы получают srcObject из него через useEffect */}
           <video ref={localVideoRef} autoPlay playsInline muted className="hidden" />
 
           {/* ========== CONNECTED + REMOTE VIDEO → Fullscreen remote ========== */}
@@ -1918,7 +1983,7 @@ const endCallSafe = useCallback(() => {
                   style={{ aspectRatio: '9 / 16' }}
                 >
                   <video
-                    ref={localVideoRef}
+                    ref={mobilePipVideoRef}
                     autoPlay
                     playsInline
                     muted
@@ -1930,31 +1995,7 @@ const endCallSafe = useCallback(() => {
                   </div>
                   {/* Switch camera button */}
                   <button
-                    onClick={async () => {
-                      try {
-                        const devices = await navigator.mediaDevices.enumerateDevices();
-                        const cameras = devices.filter(d => d.kind === 'videoinput');
-                        if (cameras.length < 2) return;
-                        const currentIdx = cameras.findIndex(c => c.deviceId === activeCameraId);
-                        const nextCam = cameras[(currentIdx + 1) % cameras.length];
-                        const sender = peerRef.current?.getSenders().find(s => s.track?.kind === 'video');
-                        if (sender && nextCam) {
-                          const newStream = await navigator.mediaDevices.getUserMedia({ video: { deviceId: { exact: nextCam.deviceId } } });
-                          const newTrack = newStream.getVideoTracks()[0];
-                          await sender.replaceTrack(newTrack);
-                          // Update local video element
-                          if (localStreamRef.current) {
-                            const oldVideoTracks = localStreamRef.current.getVideoTracks();
-                            oldVideoTracks.forEach(t => { t.stop(); localStreamRef.current?.removeTrack(t); });
-                            localStreamRef.current.addTrack(newTrack);
-                          }
-                          if (localVideoRef.current) {
-                            localVideoRef.current.srcObject = localStreamRef.current;
-                          }
-                          setActiveCameraId(nextCam.deviceId);
-                        }
-                      } catch (e) { console.warn('Camera switch failed:', e); }
-                    }}
+                    onClick={switchMobileCamera}
                     className="absolute top-1.5 right-1.5 w-7 h-7 rounded-full bg-black/50 flex items-center justify-center text-white"
                   >
                     <SwitchCamera size={14} />
@@ -2077,7 +2118,7 @@ const endCallSafe = useCallback(() => {
                   style={{ aspectRatio: '9 / 16' }}
                 >
                   <video
-                    ref={localVideoRef}
+                    ref={mobilePipVideoRef}
                     autoPlay
                     playsInline
                     muted
@@ -2088,27 +2129,7 @@ const endCallSafe = useCallback(() => {
                   </div>
                   {/* Кнопка переключения камеры */}
                   <button
-                    onClick={async () => {
-                      try {
-                        const devices = await navigator.mediaDevices.enumerateDevices();
-                        const cams = devices.filter(d => d.kind === 'videoinput');
-                        if (cams.length < 2) return;
-                        const currentIdx = cams.findIndex(c => c.deviceId === activeCameraId);
-                        const nextCam = cams[(currentIdx + 1) % cams.length];
-                        const sender = peerRef.current?.getSenders().find(s => s.track?.kind === 'video');
-                        if (sender && nextCam) {
-                          const newStream = await navigator.mediaDevices.getUserMedia({ video: { deviceId: { exact: nextCam.deviceId } } });
-                          const newTrack = newStream.getVideoTracks()[0];
-                          await sender.replaceTrack(newTrack);
-                          if (localStreamRef.current) {
-                            localStreamRef.current.getVideoTracks().forEach(t => { t.stop(); localStreamRef.current?.removeTrack(t); });
-                            localStreamRef.current.addTrack(newTrack);
-                          }
-                          if (localVideoRef.current) localVideoRef.current.srcObject = localStreamRef.current;
-                          setActiveCameraId(nextCam.deviceId);
-                        }
-                      } catch (e) { console.warn('Camera switch failed:', e); }
-                    }}
+                    onClick={switchMobileCamera}
                     className="absolute top-1.5 right-1.5 w-7 h-7 rounded-full bg-black/50 flex items-center justify-center text-white"
                   >
                     <SwitchCamera size={14} />
@@ -2197,9 +2218,6 @@ const endCallSafe = useCallback(() => {
               <PhoneOff size={14} />
             </button>
           </div>
-          {/* Hidden remote video to keep stream alive */}
-          <video ref={remoteVideoRef} autoPlay playsInline muted className="hidden" />
-          <video ref={localVideoRef} autoPlay playsInline muted className="hidden" />
         </div>
       ) : (!isMobile || callState === 'idle') && (
 
