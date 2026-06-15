@@ -70,15 +70,15 @@ export const useChatStore = create<ChatState>((set, get) => ({
   isLoadingMore: false,
   hasMore: {},
   searchQuery: '',
-  drafts: (() => { try { return JSON.parse(localStorage.getItem('vortex_drafts') || '{}'); } catch { return {}; } })(),
+  drafts: JSON.parse(localStorage.getItem('vortex_drafts') || '{}'),
   scrollPositions: {},
 
   setActiveChat: (chatId) => set((state) => {
     // Trim messages from the previous active chat to save memory
     const prevChatId = state.activeChat;
     const messages = { ...state.messages };
-    if (prevChatId && prevChatId !== chatId && messages[prevChatId]?.length > 30) {
-      messages[prevChatId] = messages[prevChatId].slice(-30);
+    if (prevChatId && prevChatId !== chatId && messages[prevChatId]?.length > MAX_MESSAGES_PER_CHAT) {
+      messages[prevChatId] = messages[prevChatId].slice(-MAX_MESSAGES_PER_CHAT);
     }
 
     return {
@@ -182,7 +182,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     if (chatMessages.length === 0) return;
 
     const oldestMessage = chatMessages[0];
-    const cursor = oldestMessage.createdAt;
+    const cursor = oldestMessage.id; // Используем ID, а не дату — нет дублей
 
     try {
       set({ isLoadingMore: true });
@@ -572,11 +572,27 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   removeChat: (chatId) => {
-    set((state) => ({
-      chats: state.chats.filter((c) => c.id !== chatId),
-      activeChat: state.activeChat === chatId ? null : state.activeChat,
-      messages: (() => { const m = { ...state.messages }; delete m[chatId]; return m; })(),
-    }));
+    set((state) => {
+      // Очищаем черновик из localStorage
+      const drafts = { ...state.drafts };
+      delete drafts[chatId];
+      localStorage.setItem('vortex_drafts', JSON.stringify(drafts));
+
+      // Очищаем позицию скролла
+      const scrollPositions = { ...state.scrollPositions };
+      delete scrollPositions[chatId];
+
+      const messages = { ...state.messages };
+      delete messages[chatId];
+
+      return {
+        chats: state.chats.filter((c) => c.id !== chatId),
+        activeChat: state.activeChat === chatId ? null : state.activeChat,
+        messages,
+        drafts,
+        scrollPositions,
+      };
+    });
   },
 
   clearMessages: (chatId) => {
@@ -623,23 +639,3 @@ export const useChatStore = create<ChatState>((set, get) => ({
     });
   },
 }));
-
-// ─── Memory GC: trim inactive chat message buffers every 5 min ────────
-// Keeps active chat untouched; trims all others to last 30 messages.
-// Prevents unbounded RAM growth when the user scrolls back far in many chats.
-setInterval(() => {
-  const { activeChat, messages } = useChatStore.getState();
-  const trimmed: Record<string, unknown[]> = {};
-  let changed = false;
-  for (const [chatId, msgs] of Object.entries(messages)) {
-    if (chatId !== activeChat && (msgs as unknown[]).length > 30) {
-      trimmed[chatId] = (msgs as unknown[]).slice(-30);
-      changed = true;
-    }
-  }
-  if (changed) {
-    useChatStore.setState((state) => ({
-      messages: { ...state.messages, ...trimmed },
-    }));
-  }
-}, 5 * 60 * 1000);
