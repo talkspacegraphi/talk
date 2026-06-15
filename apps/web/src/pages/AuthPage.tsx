@@ -123,7 +123,6 @@ export default function AuthPage() {
                 placeholder="username"
                 className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder-zinc-600 focus:border-vortex-500/50 focus:ring-1 focus:ring-vortex-500/25 transition-all"
                 required
-                autoFocus
                 autoComplete="off"
                 aria-required="true"
                 aria-describedby="username-hint"

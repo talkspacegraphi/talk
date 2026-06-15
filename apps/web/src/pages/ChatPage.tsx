@@ -59,6 +59,7 @@ export default function ChatPage() {
   const [callSessionId, setCallSessionId] = useState(0);
   const [deliveryNotification, setDeliveryNotification] = useState<string | null>(null);
   const deliveryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const unreadCountRef = useRef(0);
 
   // Group call state
   const [groupCallOpen, setGroupCallOpen] = useState(false);
@@ -74,6 +75,25 @@ export default function ChatPage() {
   const [profileUserId, setProfileUserId] = useState<string | null>(null);
 
   const { t } = useLang();
+
+  // Запрашиваем разрешение на уведомления при загрузке
+  useEffect(() => {
+    if ('Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission();
+    }
+  }, []);
+
+  // Сбрасываем счётчик непрочитанных когда вкладка становится активной
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (!document.hidden) {
+        unreadCountRef.current = 0;
+        document.title = 'Talk';
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, []);
 
   // Mouse tracking for animated themes
   useEffect(() => {
@@ -120,6 +140,9 @@ export default function ChatPage() {
     const socket = getSocket();
     if (!socket) return;
 
+    // Map для хранения typing-таймеров: ключ = "chatId:userId"
+    const typingTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
     socket.on('new_message', async (message: Message) => {
       // If this chat isn't in our store yet (e.g. someone just created it and sent a message),
       // fetch chats so the new chat appears in the sidebar immediately
@@ -145,6 +168,22 @@ export default function ChatPage() {
       // Play notification sound for messages from others
       if (message.senderId !== user?.id && !isChatMuted(message.chatId)) {
         playNotificationSound();
+
+        // Обновляем счётчик непрочитанных в заголовке вкладки
+        if (document.hidden) {
+          unreadCountRef.current += 1;
+          document.title = `(${unreadCountRef.current}) Talk`;
+        }
+
+        // Браузерное уведомление когда вкладка не активна
+        if (document.hidden && 'Notification' in window && Notification.permission === 'granted') {
+          const senderName = message.sender?.displayName || message.sender?.username || 'Talk';
+          const body = message.content || (message.type === 'image' ? '📷 Фото' : message.type === 'voice' ? '🎤 Голосовое' : '📎 Файл');
+          try {
+            const notif = new Notification(senderName, { body, icon: '/logo.png', tag: message.chatId });
+            notif.onclick = () => { window.focus(); notif.close(); };
+          } catch { /* некоторые браузеры блокируют */ }
+        }
       }
     });
 
@@ -208,8 +247,13 @@ export default function ChatPage() {
 
     socket.on('user_typing', (data: { chatId: string; userId: string }) => {
       if (data.userId !== user?.id) {
+        const key = `${data.chatId}:${data.userId}`;
+        clearTimeout(typingTimers.get(key));
         addTypingUser(data.chatId, data.userId);
-        setTimeout(() => removeTypingUser(data.chatId, data.userId), 3000);
+        typingTimers.set(key, setTimeout(() => {
+          removeTypingUser(data.chatId, data.userId);
+          typingTimers.delete(key);
+        }, 3000));
       }
     });
 
@@ -300,6 +344,9 @@ export default function ChatPage() {
       socket.off('chat_deleted_by_other');
       socket.off('call_incoming');
       socket.off('content_warning');
+      // Очищаем все typing таймеры
+      for (const timer of typingTimers.values()) clearTimeout(timer);
+      typingTimers.clear();
     };
   }, [user?.id]);
 
