@@ -1,45 +1,10 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-// framer-motion removed: caused React error #321 with React 19.
-// Using plain <div> with CSS animations (see .call-modal-* classes in index.css).
+import { motion, AnimatePresence } from 'framer-motion';
 import { Phone, PhoneOff, Video, VideoOff, Mic, MicOff, Monitor, MonitorOff, Maximize, Minimize, SwitchCamera, Minimize2, Maximize2, Volume2, ShieldCheck, ShieldOff, ChevronUp, X, Minus } from 'lucide-react';
 import { getSocket } from '../lib/socket';
 import { api } from '../lib/api';
 import { useLang } from '../lib/i18n';
 import { playCallRingtone, stopCallRingtone, playUnavailableSound } from '../lib/sounds';
-
-// Исходящий гудок — генерируем через Web Audio API (не нужен файл)
-let dialToneCtx: AudioContext | null = null;
-let dialToneOsc: OscillatorNode | null = null;
-let dialToneGain: GainNode | null = null;
-let dialToneInterval: ReturnType<typeof setInterval> | null = null;
-
-function startDialTone() {
-  stopDialTone();
-  try {
-    dialToneCtx = new AudioContext();
-    const beep = () => {
-      if (!dialToneCtx) return;
-      dialToneOsc = dialToneCtx.createOscillator();
-      dialToneGain = dialToneCtx.createGain();
-      dialToneOsc.type = 'sine';
-      dialToneOsc.frequency.value = 440;
-      dialToneGain.gain.value = 0.18;
-      dialToneOsc.connect(dialToneGain);
-      dialToneGain.connect(dialToneCtx.destination);
-      dialToneOsc.start();
-      dialToneOsc.stop(dialToneCtx.currentTime + 0.4);
-    };
-    beep();
-    dialToneInterval = setInterval(beep, 3000);
-  } catch { /* ignore */ }
-}
-
-function stopDialTone() {
-  if (dialToneInterval) { clearInterval(dialToneInterval); dialToneInterval = null; }
-  try { dialToneOsc?.stop(); } catch { /* already stopped */ }
-  try { dialToneCtx?.close(); } catch { /* ignore */ }
-  dialToneCtx = null; dialToneOsc = null; dialToneGain = null;
-}
 import ScreenSourcePicker from './ScreenSourcePicker';
 import { isAndroidWebView, nativeCallLog } from '../lib/utils';
 
@@ -295,7 +260,6 @@ export default function CallModal({ isOpen, onClose, targetUser, callType: initi
   const screenStreamRef = useRef<MediaStream | null>(null);
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
-  const mobilePipVideoRef = useRef<HTMLVideoElement>(null); // PIP для мобильного UI
   const remoteAudioRef = useRef<HTMLAudioElement>(null);
   const timerRef = useRef<ReturnType<typeof setInterval>>(undefined);
   const callTimeoutRef = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -309,14 +273,6 @@ export default function CallModal({ isOpen, onClose, targetUser, callType: initi
   const remoteStreamRef = useRef<MediaStream | null>(null);
   const disconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const callInProgressRef = useRef(false); // guard against multiple startCall/acceptCall
-  const earpieceEnsuredRef = useRef(false); // guard: ensure earpiece is set only once per call
-
-  // Bumped whenever a track is added/removed from localStreamRef so the
-  // local-video <video>.srcObject effect re-runs (refs alone don't trigger
-  // effects, which is why the local preview didn't show until the remote
-  // video started flowing).
-  const [localStreamVersion, setLocalStreamVersion] = useState(0);
-  const [hasLocalVideoState, setHasLocalVideoState] = useState(false);
 
   // Refresh all devices on call connect
   const refreshAllDevices = useCallback(async () => {
@@ -384,80 +340,11 @@ const toggleEarpiece = useCallback(async () => {
     } catch (e) { console.warn('Speaker switch failed:', e); }
     // Also adjust volume for earpiece mode
     if (remoteAudioRef.current) {
-  remoteAudioRef.current.volume = 1;
-}
+      remoteAudioRef.current.volume = newMode ? 0.6 : 1;
+    }
   }, [isEarpieceMode]);
 
   // Toggle camera on mobile (with permission request)
-  // Создаём чёрный видеотрек — отправляем вместо null когда камера выключена
-  // Это убирает "последний кадр" у собеседника
-  const createBlackVideoTrack = (): MediaStreamTrack => {
-    const canvas = document.createElement('canvas');
-    canvas.width = 2; canvas.height = 2;
-    const ctx = canvas.getContext('2d')!;
-    ctx.fillStyle = 'black';
-    ctx.fillRect(0, 0, 2, 2);
-    const stream = (canvas as any).captureStream(1) as MediaStream;
-    return stream.getVideoTracks()[0];
-  };
-
-  // Быстрое переключение камеры на мобиле без чёрного экрана:
-  // сначала replaceTrack (НЕ останавливая старый трек), потом обновляем localStream
-  const switchMobileCamera = useCallback(async () => {
-    const pc = peerRef.current;
-    if (!pc) return;
-    try {
-      const currentTrack = localStreamRef.current?.getVideoTracks()[0];
-      const currentFacing = currentTrack?.getSettings().facingMode ?? 'user';
-      const nextFacing = currentFacing === 'user' ? 'environment' : 'user';
-
-      const newStream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: { exact: nextFacing }, width: { ideal: 1280 }, height: { ideal: 720 } },
-      });
-      const newTrack = newStream.getVideoTracks()[0];
-
-      // 1) Сначала replaceTrack — не останавливая старый трек,
-      //    браузер плавно переключает без чёрного/серого кадра
-      const sender = pc.getSenders().find(s => s.track?.kind === 'video');
-      if (sender) await sender.replaceTrack(newTrack);
-
-      // 2) Теперь останавливаем старый и обновляем localStream
-      if (localStreamRef.current) {
-        localStreamRef.current.getVideoTracks().forEach(t => {
-          if (t !== newTrack) { t.stop(); localStreamRef.current?.removeTrack(t); }
-        });
-        localStreamRef.current.addTrack(newTrack);
-      }
-      if (localVideoRef.current) localVideoRef.current.srcObject = localStreamRef.current;
-      if (mobilePipVideoRef.current) mobilePipVideoRef.current.srcObject = localStreamRef.current;
-
-      setActiveCameraId(newTrack.getSettings().deviceId ?? '');
-    } catch (e) {
-      console.warn('Camera switch failed:', e);
-      // Fallback: enumerate + deviceId
-      try {
-        const devices = await navigator.mediaDevices.enumerateDevices();
-        const cams = devices.filter(d => d.kind === 'videoinput');
-        if (cams.length < 2) return;
-        const currentIdx = cams.findIndex(c => c.deviceId === activeCameraId);
-        const nextCam = cams[(currentIdx + 1) % cams.length];
-        const newStream = await navigator.mediaDevices.getUserMedia({ video: { deviceId: { exact: nextCam.deviceId } } });
-        const newTrack = newStream.getVideoTracks()[0];
-        const sender = pc.getSenders().find(s => s.track?.kind === 'video');
-        if (sender) await sender.replaceTrack(newTrack);
-        if (localStreamRef.current) {
-          localStreamRef.current.getVideoTracks().forEach(t => {
-            if (t !== newTrack) { t.stop(); localStreamRef.current?.removeTrack(t); }
-          });
-          localStreamRef.current.addTrack(newTrack);
-        }
-        if (localVideoRef.current) localVideoRef.current.srcObject = localStreamRef.current;
-        if (mobilePipVideoRef.current) mobilePipVideoRef.current.srcObject = localStreamRef.current;
-        setActiveCameraId(nextCam.deviceId);
-      } catch (e2) { console.warn('Camera switch fallback failed:', e2); }
-    }
-  }, [activeCameraId]);
-
   const toggleMobileCamera = useCallback(async () => {
     if (callType === 'voice') {
       // Upgrade to video call
@@ -474,22 +361,8 @@ const toggleEarpiece = useCallback(async () => {
           stream.getVideoTracks().forEach(track => {
             localStreamRef.current?.addTrack(track);
           });
-          // setHasLocalVideoState(true) рендерит <video> PIP — srcObject нужно назначить
-          // уже ПОСЛЕ рендера, поэтому используем requestAnimationFrame
-          setHasLocalVideoState(true);
-          setCallType('video');
           setIsVideoOff(false);
-          setLocalStreamVersion(v => v + 1);
-          requestAnimationFrame(() => {
-            if (localVideoRef.current && localStreamRef.current) {
-              localVideoRef.current.srcObject = localStreamRef.current;
-              localVideoRef.current.play().catch(() => {});
-            }
-            if (mobilePipVideoRef.current && localStreamRef.current) {
-              mobilePipVideoRef.current.srcObject = localStreamRef.current;
-              mobilePipVideoRef.current.play().catch(() => {});
-            }
-          });
+          setCallType('video');
           const offer = await peerRef.current.createOffer();
           await peerRef.current.setLocalDescription(offer);
           getSocket()?.emit('renegotiate', { targetUserId: targetUserIdRef.current, offer: peerRef.current.localDescription });
@@ -508,25 +381,17 @@ const toggleEarpiece = useCallback(async () => {
         const newOff = videoTracks[0].enabled;
         videoTracks.forEach(t => { t.enabled = !newOff; });
         setIsVideoOff(newOff);
-        setHasLocalVideoState(!newOff);
+        // Replace track with null or re-add
         const sender = peerRef.current?.getSenders().find(s => s.track?.kind === 'video');
         if (sender && peerRef.current) {
           if (newOff) {
-            // Выключаем — отправляем чёрный кадр вместо null
-            // чтобы у собеседника не завис последний кадр
-            const blackTrack = createBlackVideoTrack();
-            await sender.replaceTrack(blackTrack);
+            // Turning off — replace with null
+            await sender.replaceTrack(new MediaStreamTrack());
           } else {
+            // Turning on — replace with existing track
             await sender.replaceTrack(videoTracks[0]);
-            requestAnimationFrame(() => {
-              if (localVideoRef.current && localStreamRef.current) {
-                localVideoRef.current.srcObject = localStreamRef.current;
-                localVideoRef.current.play().catch(() => {});
-              }
-            });
           }
         }
-        setLocalStreamVersion(v => v + 1);
       }
     }
   }, [callType, isVideoOff]);
@@ -579,7 +444,6 @@ const toggleEarpiece = useCallback(async () => {
     if (closeTimeoutRef.current) clearTimeout(closeTimeoutRef.current);
     if (disconnectTimeoutRef.current) { clearTimeout(disconnectTimeoutRef.current); disconnectTimeoutRef.current = null; }
     stopCallRingtone();
-    stopDialTone();
     if (localStreamRef.current) {
       localStreamRef.current.getTracks().forEach(track => track.stop());
       localStreamRef.current = null;
@@ -588,10 +452,6 @@ const toggleEarpiece = useCallback(async () => {
       screenStreamRef.current.getTracks().forEach(track => track.stop());
       screenStreamRef.current = null;
     }
-    // Очищаем srcObject — браузер держит медиа активной иначе (экран не гаснет)
-    if (localVideoRef.current) { localVideoRef.current.srcObject = null; }
-    if (remoteVideoRef.current) { remoteVideoRef.current.srcObject = null; }
-    if (remoteAudioRef.current) { remoteAudioRef.current.srcObject = null; }
     if (peerRef.current) {
       peerRef.current.onconnectionstatechange = null;
       peerRef.current.onicecandidate = null;
@@ -611,7 +471,6 @@ const toggleEarpiece = useCallback(async () => {
     setDuration(0);
     setIsMuted(false);
     setIsVideoOff(false);
-    setHasLocalVideoState(false); // ← добавить
     setIsScreenSharing(false);
     setHasRemoteVideo(false);
     setIsFullscreen(false);
@@ -753,7 +612,6 @@ const endCallSafe = useCallback(() => {
     const socket = getSocket();
     socket?.emit('call_end', { targetUserId: targetUserIdRef.current });
     stopCallRingtone();
-    stopDialTone();
     setCallState('ended');
     cleanup();
     scheduleClose();
@@ -772,9 +630,6 @@ const endCallSafe = useCallback(() => {
     try {
       console.log('[startCall] Getting media, wantVideo:', callType === 'video');
       nativeCallLog('startCall: requesting getUserMedia...');
-      // Запускаем гудки сразу при начале вызова
-      playCallRingtone();
-      startDialTone();
       const { stream, hasVideo } = await getMediaWithCameraFallback(callType === 'video');
       nativeCallLog(`startCall: getUserMedia OK audio=${stream.getAudioTracks().length} video=${stream.getVideoTracks().length} hasVideo=${hasVideo}`);
       console.log('[startCall] Got media — hasVideo:', hasVideo,
@@ -833,16 +688,15 @@ const endCallSafe = useCallback(() => {
         if (callEndedRef.current) return;
         callEndedRef.current = true;
         stopCallRingtone();
-        stopDialTone();
+        const s = getSocket();
         s?.emit('call_end', { targetUserId: targetUserIdRef.current });
         cleanup();
-        // Играем звук недозвона на всех платформах
-        playUnavailableSound();
         if (isMobile) {
           setShowNoAnswerScreen(true);
           setCallState('ended');
         } else {
           setCallState('ended');
+          await playUnavailableSound();
           onClose();
         }
       }, noAnswerDelay);
@@ -991,12 +845,9 @@ const endCallSafe = useCallback(() => {
       });
 
       setCallType(effectiveCallType);
-      setCallState('connected');
+setCallState('connected');
       timerRef.current = setInterval(() => setDuration((d) => d + 1), 1000);
-      if (isAndroidWebView()) {
-        (window as any).Android?.setSpeakerOn?.(false);
-        (window as any).Android?.onCallStarted?.();
-      }
+      if (isAndroidWebView()) (window as any).Android?.onCallStarted?.();
     } catch (err: any) {
       console.error('Error accepting call:', err);
       nativeCallLog(`acceptCall ERROR: ${err?.name} - ${err?.message}`);
@@ -1024,8 +875,6 @@ const endCallSafe = useCallback(() => {
     }
     callEndedRef.current = true;
     stopCallRingtone();
-    stopDialTone();
-    if (isAndroidWebView()) (window as any).Android?.onIncomingCallEnded?.();
     setCallState('ended');
     cleanup();
     scheduleClose();
@@ -1776,20 +1625,6 @@ const endCallSafe = useCallback(() => {
     return () => document.removeEventListener('fullscreenchange', onFsChange);
   }, []);
 
-  // On call connect, explicitly ensure earpiece is ON on Android (once per call).
-  // Without this, speaker may be left on from a previous call.
-  // NOTE: this MUST be a top-level useEffect — nested inside another useEffect
-  // throws React error #321 (hooks cannot be called inside callbacks/effects).
-  useEffect(() => {
-    if (callState === 'connected' && !earpieceEnsuredRef.current) {
-      earpieceEnsuredRef.current = true;
-      setIsEarpieceMode(true);
-    }
-    if (callState === 'idle' || callState === 'ended') {
-      earpieceEnsuredRef.current = false;
-    }
-  }, [callState]);
-
   // Socket event listeners
   useEffect(() => {
     const socket = getSocket();
@@ -1800,7 +1635,6 @@ const endCallSafe = useCallback(() => {
       nativeCallLog(`call_answered from=${data.from}`);
       if (callTimeoutRef.current) clearTimeout(callTimeoutRef.current);
       stopCallRingtone();
-      stopDialTone();
       console.log('[onCallAnswered] Setting remote description (answer)');
       await peerRef.current.setRemoteDescription(new RTCSessionDescription(data.answer));
       console.log('[onCallAnswered] Transceivers after answer:',
@@ -1817,10 +1651,8 @@ const endCallSafe = useCallback(() => {
       iceCandidateBufferRef.current = [];
       setCallState('connected');
       timerRef.current = setInterval(() => setDuration((d) => d + 1), 1000);
-      if (isAndroidWebView()) {
-        (window as any).Android?.setSpeakerOn?.(false);
-        (window as any).Android?.onCallStarted?.();
-      }
+      // Notify Android: call started → switch to earpiece
+      if (isAndroidWebView()) (window as any).Android?.onCallStarted?.();
     };
 
     const onIceCandidate = (data: { from: string; candidate: RTCIceCandidateInit }) => {
@@ -1831,16 +1663,12 @@ const endCallSafe = useCallback(() => {
       }
     };
 
-    // On call connect, explicitly ensure earpiece is ON on Android (once per call).
-    // (useEffect moved to top-level above; cannot live inside another useEffect.)
-
     const onCallEnded = (data: { from: string }) => {
       nativeCallLog(`call_ended from=${data.from}`);
       if (callEndedRef.current) return;
       if (data.from !== targetUserIdRef.current) return;
       callEndedRef.current = true;
       stopCallRingtone();
-      stopDialTone();
       setCallState('ended');
       cleanup();
       scheduleClose();
@@ -1851,9 +1679,6 @@ const endCallSafe = useCallback(() => {
       if (data.from !== targetUserIdRef.current) return;
       callEndedRef.current = true;
       stopCallRingtone();
-      stopDialTone();
-      // Играем звук недозвона/отклонения
-      playUnavailableSound();
       setCallState('ended');
       cleanup();
       scheduleClose();
@@ -1863,8 +1688,6 @@ const endCallSafe = useCallback(() => {
       if (callEndedRef.current) return;
       callEndedRef.current = true;
       stopCallRingtone();
-      stopDialTone();
-      playUnavailableSound();
       setCallState('ended');
       cleanup();
       scheduleClose();
@@ -1926,34 +1749,19 @@ const endCallSafe = useCallback(() => {
       setCallState('incoming');
       setCallType(incoming.callType);
       playCallRingtone();
-      // Уведомляем Android — если приложение свёрнуто, покажет уведомление
-      if (isAndroidWebView()) {
-        const callerName = incoming.callerInfo?.displayName || incoming.callerInfo?.username || 'Звонок';
-        (window as any).Android?.onIncomingCall?.(callerName, incoming.callType);
-      }
     }
   }, [isOpen, incoming, targetUser, callState]);
 
-  // Sync local video ref with stream — set unconditionally so any track additions/changes
-  // (e.g. adding video after a voice call starts) are reflected immediately.
-  // localStreamVersion is a state counter bumped whenever a track is added/removed,
-  // so this effect actually re-runs (refs don't trigger effects).
+  // Sync local video ref with stream (only when srcObject actually changes)
   useEffect(() => {
-  if (!localVideoRef.current) return;
-  const desired = isScreenSharing && screenStreamRef.current
-    ? screenStreamRef.current
-    : localStreamRef.current;
-  if (desired) {
-    localVideoRef.current.srcObject = desired;
-    // Синхронизируем мобильный PIP ref
-    if (mobilePipVideoRef.current) {
-      mobilePipVideoRef.current.srcObject = desired;
+    if (!localVideoRef.current) return;
+    const desired = isScreenSharing && screenStreamRef.current
+      ? screenStreamRef.current
+      : localStreamRef.current;
+    if (desired && localVideoRef.current.srcObject !== desired) {
+      localVideoRef.current.srcObject = desired;
     }
-    // Обновляем стейт чтобы PIP отобразился
-    const hasVideo = desired.getVideoTracks().some(t => t.enabled && t.readyState === 'live');
-    setHasLocalVideoState(hasVideo || isScreenSharing);
-  }
-}, [localStreamVersion, isScreenSharing]);
+  });
 
   // Sync remote video ref with remote stream (only when srcObject actually changes)
   useEffect(() => {
@@ -1997,26 +1805,30 @@ const endCallSafe = useCallback(() => {
 
   const isElectron = typeof window !== 'undefined' && !!(window as any).electronAPI;
   const showVideoArea = callState === 'connected' && (hasRemoteVideo || (callType === 'video' && (!isVideoOff || isScreenSharing)));
-  const hasLocalVideo = hasLocalVideoState || isScreenSharing;
+  const hasLocalVideo = !!(
+    localStreamRef.current?.getVideoTracks().some(t => t.enabled) || isScreenSharing
+  );
 
   return (
-    <>
+    <AnimatePresence>
       <audio key="remote-audio" ref={remoteAudioRef} autoPlay playsInline />
+
       {/* === MOBILE CALL UI === */}
       {isMobile && !isMinimized && (callState === 'calling' || callState === 'connected' || callState === 'incoming' || showNoAnswerScreen) && (
-        <div
+        <motion.div
           key="mobile-call"
-          className="call-modal-fade-in fixed inset-0 z-[100] flex flex-col overflow-hidden"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          className="fixed inset-0 z-[100] flex flex-col overflow-hidden"
           style={{ background: 'linear-gradient(180deg, #0a0a0f 0%, #111118 40%, #111118 60%, #0a0a0f 100%)' }}
         >
-          {/* Постоянные видеоэлементы — всегда в DOM, ref никогда не меняется */}
+          {/* Hidden video elements */}
           <video ref={remoteVideoRef} autoPlay playsInline muted className="hidden" />
-          {/* localVideoRef — скрытый, используется как источник srcObject.
-              Видимые PIP-элементы получают srcObject из него через useEffect */}
           <video ref={localVideoRef} autoPlay playsInline muted className="hidden" />
 
           {/* ========== CONNECTED + REMOTE VIDEO → Fullscreen remote ========== */}
-          {callState === 'connected' && hasRemoteVideo && !isVideoOff ? (
+          {callState === 'connected' && hasRemoteVideo ? (
             <>
               {/* Remote video fullscreen */}
               <div className="absolute inset-0 bg-black">
@@ -2029,27 +1841,19 @@ const endCallSafe = useCallback(() => {
                 />
               </div>
 
-              {/* Name + duration at top + кнопка свернуть */}
-              <div className="absolute top-0 left-0 right-0 z-20 bg-gradient-to-b from-black/70 to-transparent pt-12 pb-8 px-4 flex items-start">
-                <button
-                  onClick={() => setIsMinimized(true)}
-                  className="w-10 h-10 rounded-full bg-black/50 flex items-center justify-center text-white/70 mr-3 mt-0.5 shrink-0"
-                >
-                  <Minus size={20} />
-                </button>
-                <div className="flex-1 text-center pr-12">
-                  <p className="text-lg font-bold text-white">{displayName}</p>
-                  <p className="text-sm text-white/70 font-mono">{formatDuration(duration)}</p>
-                </div>
+              {/* Name + duration at top */}
+              <div className="absolute top-0 left-0 right-0 z-20 bg-gradient-to-b from-black/70 to-transparent pt-12 pb-8 px-4">
+                <p className="text-lg font-bold text-white text-center">{displayName}</p>
+                <p className="text-sm text-white/70 font-mono text-center">{formatDuration(duration)}</p>
               </div>
 
-              {/* Local camera PIP — bottom-right, above call buttons (z-30) */}
+              {/* Local camera PIP — bottom-right */}
               {hasLocalVideo && (
-                <div className="absolute bottom-36 right-4 z-30 w-36 rounded-2xl overflow-hidden border-2 border-white/20 shadow-2xl bg-black"
+                <div className="absolute bottom-28 right-4 z-20 w-36 rounded-2xl overflow-hidden border-2 border-white/20 shadow-2xl bg-black"
                   style={{ aspectRatio: '9 / 16' }}
                 >
                   <video
-                    ref={mobilePipVideoRef}
+                    ref={localVideoRef}
                     autoPlay
                     playsInline
                     muted
@@ -2061,7 +1865,31 @@ const endCallSafe = useCallback(() => {
                   </div>
                   {/* Switch camera button */}
                   <button
-                    onClick={switchMobileCamera}
+                    onClick={async () => {
+                      try {
+                        const devices = await navigator.mediaDevices.enumerateDevices();
+                        const cameras = devices.filter(d => d.kind === 'videoinput');
+                        if (cameras.length < 2) return;
+                        const currentIdx = cameras.findIndex(c => c.deviceId === activeCameraId);
+                        const nextCam = cameras[(currentIdx + 1) % cameras.length];
+                        const sender = peerRef.current?.getSenders().find(s => s.track?.kind === 'video');
+                        if (sender && nextCam) {
+                          const newStream = await navigator.mediaDevices.getUserMedia({ video: { deviceId: { exact: nextCam.deviceId } } });
+                          const newTrack = newStream.getVideoTracks()[0];
+                          await sender.replaceTrack(newTrack);
+                          // Update local video element
+                          if (localStreamRef.current) {
+                            const oldVideoTracks = localStreamRef.current.getVideoTracks();
+                            oldVideoTracks.forEach(t => { t.stop(); localStreamRef.current?.removeTrack(t); });
+                            localStreamRef.current.addTrack(newTrack);
+                          }
+                          if (localVideoRef.current) {
+                            localVideoRef.current.srcObject = localStreamRef.current;
+                          }
+                          setActiveCameraId(nextCam.deviceId);
+                        }
+                      } catch (e) { console.warn('Camera switch failed:', e); }
+                    }}
                     className="absolute top-1.5 right-1.5 w-7 h-7 rounded-full bg-black/50 flex items-center justify-center text-white"
                   >
                     <SwitchCamera size={14} />
@@ -2069,8 +1897,8 @@ const endCallSafe = useCallback(() => {
                 </div>
               )}
 
-              {/* 4 buttons bottom — higher z than local PIP (z-20) */}
-              <div className="absolute bottom-0 left-0 right-0 pb-12 pt-6 bg-gradient-to-t from-black/70 to-transparent z-30">
+              {/* 4 buttons bottom */}
+              <div className="absolute bottom-0 left-0 right-0 pb-12 pt-6 bg-gradient-to-t from-black/70 to-transparent z-20">
                 <div className="flex items-center justify-center">
                   <div className="flex items-center gap-5 bg-white/10 rounded-full px-6 py-3.5 backdrop-blur-sm border border-white/5">
                     <button onClick={toggleEarpiece} className={`w-14 h-14 rounded-full flex items-center justify-center transition-all ${!isEarpieceMode ? 'bg-vortex-500 text-white shadow-lg shadow-vortex-500/30' : 'bg-white/10 text-white/70'}`}>
@@ -2174,34 +2002,8 @@ const endCallSafe = useCallback(() => {
                       </div>
                     )}
                   </div>
-</div>
-              </div>
-
-              {/* Local camera PIP когда камера включена но удалённого видео нет */}
-              {callState === 'connected' && hasLocalVideo && !hasRemoteVideo && (
-                <div
-                  className="absolute bottom-36 right-4 z-30 w-36 rounded-2xl overflow-hidden border-2 border-white/20 shadow-2xl bg-black"
-                  style={{ aspectRatio: '9 / 16' }}
-                >
-                  <video
-                    ref={mobilePipVideoRef}
-                    autoPlay
-                    playsInline
-                    muted
-                    className="w-full h-full object-cover"
-                  />
-                  <div className="absolute bottom-1.5 left-1.5 px-2 py-0.5 rounded-full bg-black/50 text-[10px] text-white font-medium">
-                    Вы
-                  </div>
-                  {/* Кнопка переключения камеры */}
-                  <button
-                    onClick={switchMobileCamera}
-                    className="absolute top-1.5 right-1.5 w-7 h-7 rounded-full bg-black/50 flex items-center justify-center text-white"
-                  >
-                    <SwitchCamera size={14} />
-                  </button>
                 </div>
-              )}
+              </div>
 
               {/* Bottom buttons — different for each state */}
               <div className="pb-12 px-6 z-10">
@@ -2245,15 +2047,19 @@ const endCallSafe = useCallback(() => {
               </div>
             </>
           )}
-        </div>
+        </motion.div>
       )}
 
+      {/* === MINIMIZED VIEW === */}
       {isMinimized && callState === 'connected' ? (
-  <div
-    key="call-minimized"
-    className="call-modal-pop-in fixed bottom-6 right-6 z-[100] flex items-center gap-3 px-4 py-3 rounded-2xl glass-strong shadow-2xl shadow-black/50 border border-white/10 cursor-pointer select-none"
-    onClick={() => setIsMinimized(false)}
-  >
+        <motion.div
+          key="call-minimized"
+          initial={{ opacity: 0, y: 50, scale: 0.8 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          exit={{ opacity: 0, y: 50, scale: 0.8 }}
+          className="fixed bottom-6 right-6 z-[100] flex items-center gap-3 px-4 py-3 rounded-2xl glass-strong shadow-2xl shadow-black/50 border border-white/10 cursor-pointer select-none"
+          onClick={() => setIsMinimized(false)}
+        >
           {/* Avatar */}
           <div className="relative">
             <div className="absolute inset-0 rounded-full bg-vortex-500/30 animate-call-wave" />
@@ -2284,16 +2090,22 @@ const endCallSafe = useCallback(() => {
               <PhoneOff size={14} />
             </button>
           </div>
-        </div>
+          {/* Hidden remote video to keep stream alive */}
+          <video ref={remoteVideoRef} autoPlay playsInline muted className="hidden" />
+          <video ref={localVideoRef} autoPlay playsInline muted className="hidden" />
+        </motion.div>
       ) : (!isMobile || callState === 'idle') && (
 
       /* === FULL VIEW (desktop only) === */
-      <div
+      <motion.div
         key="call-overlay"
-        className={`call-modal-fade-in fixed inset-0 z-[100] flex items-center justify-center bg-surface/90 backdrop-blur-xl overflow-hidden`}
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
         role="dialog"
         aria-modal="true"
         aria-label="Call"
+        className="fixed inset-0 z-[100] flex items-center justify-center bg-surface/90 backdrop-blur-xl overflow-hidden"
         onClick={() => { setShowCameraMenu(false); setShowVolumeSlider(false); setShowMicMenu(false); }}
       >
         {/* Ambient background glow for call modal */}
@@ -2302,8 +2114,12 @@ const endCallSafe = useCallback(() => {
           <div className="absolute bottom-[10%] right-[20%] w-[50vh] h-[50vh] bg-emerald-500/20 rounded-full blur-[120px] animate-float-delayed" />
         </div>
 
-        <div
-          className={`call-modal-pop-in relative w-full mx-4 rounded-[2.5rem] glass-strong shadow-2xl shadow-black/50 overflow-hidden border border-white/5 ${showVideoArea ? 'max-w-5xl' : 'max-w-md'
+        <motion.div
+          initial={{ scale: 0.9, opacity: 0, y: 20 }}
+          animate={{ scale: 1, opacity: 1, y: 0 }}
+          exit={{ scale: 0.9, opacity: 0, y: 20 }}
+          transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+          className={`relative w-full mx-4 rounded-[2.5rem] glass-strong shadow-2xl shadow-black/50 overflow-hidden border border-white/5 ${showVideoArea ? 'max-w-5xl' : 'max-w-md'
             }`}
         >
           {/* CustomTitleBar in App.tsx handles window controls — no need for duplicate here */}
@@ -2400,9 +2216,9 @@ const endCallSafe = useCallback(() => {
                 </div>
               )}
 
-              {/* Local video PIP (bottom-right, above controls) */}
+              {/* Local video PIP (bottom-right) */}
               {hasLocalVideo && (
-                <div className="absolute bottom-3 right-3 w-48 rounded-xl overflow-hidden border-2 border-white/20 shadow-lg bg-black z-20"
+                <div className="absolute bottom-3 right-3 w-48 rounded-xl overflow-hidden border-2 border-white/20 shadow-lg bg-black z-10"
                   style={{ aspectRatio: '16 / 9' }}
                 >
                   <video
@@ -2655,8 +2471,8 @@ const endCallSafe = useCallback(() => {
               <p className="text-sm text-zinc-500">{t('callEnded')}</p>
             )}
           </div>
-        </div>
-      </div>
+        </motion.div>
+      </motion.div>
       )}
 
       {/* Screen source picker for Electron */}
@@ -2665,6 +2481,6 @@ const endCallSafe = useCallback(() => {
         onClose={() => setShowScreenSourcePicker(false)}
         onSelect={handleScreenSourceSelect}
       />
-    </>
+    </AnimatePresence>
   );
 }

@@ -37,6 +37,9 @@ const electron_1 = require("electron");
 const path = __importStar(require("path"));
 const fs = __importStar(require("fs"));
 const child_process_1 = require("child_process");
+// Remote server URL — change to your Render URL for production builds
+// Set to '' to use embedded local server instead
+const REMOTE_URL = process.env.VORTEX_SERVER_URL || 'https://talktop-zkta.onrender.com';
 let mainWindow = null;
 let serverProcess = null;
 let tray = null;
@@ -337,7 +340,6 @@ async function loadMainApp() {
     if (isDev) {
         const viteUrl = 'http://127.0.0.1:5173';
         console.log(`Loading Vite from: ${viteUrl}`);
-        // Wait for Vite to be ready before loading
         let ready = false;
         for (let i = 0; i < 30; i++) {
             try {
@@ -353,7 +355,6 @@ async function loadMainApp() {
         if (!ready) {
             console.error('Vite dev server not ready after 15s!');
         }
-        // Disable HTTP cache in dev to always get fresh code
         await mainWindow.webContents.session.clearCache();
         await mainWindow.webContents.session.clearStorageData();
         await mainWindow.loadURL(viteUrl);
@@ -361,10 +362,98 @@ async function loadMainApp() {
             mainWindow.webContents.openDevTools();
         }
     }
+    else if (REMOTE_URL) {
+        // Remote server mode (Render, VPS, etc.)
+        console.log(`Loading from remote: ${REMOTE_URL}`);
+        // Show connecting screen while server wakes up
+        mainWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(`
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <style>
+          body {
+            background: #0a0e27;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            color: white;
+          }
+          .loader { text-align: center; }
+          h1 { font-size: 24px; margin-bottom: 10px; }
+          p { color: #888; font-size: 14px; }
+          .spinner {
+            width: 32px; height: 32px;
+            margin: 20px auto;
+            border: 3px solid rgba(255,255,255,0.1);
+            border-top-color: #8b5cf6;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+          }
+          @keyframes spin { to { transform: rotate(360deg); } }
+        </style>
+      </head>
+      <body>
+        <div class="loader">
+          <h1>Talk</h1>
+          <div class="spinner"></div>
+          <p>Подключение к серверу...</p>
+        </div>
+      </body>
+      </html>
+    `)}`);
+        // Retry loading until server is ready
+        let loaded = false;
+        for (let i = 0; i < 60; i++) {
+            try {
+                const resp = await fetch(REMOTE_URL, { method: 'HEAD' });
+                if (resp.ok || resp.status < 500) {
+                    loaded = true;
+                    break;
+                }
+            }
+            catch { }
+            await new Promise(r => setTimeout(r, 1000));
+        }
+        if (loaded && mainWindow && !mainWindow.isDestroyed()) {
+            await mainWindow.loadURL(REMOTE_URL);
+            mainWindow.webContents.openDevTools();
+            // Log console errors from the page
+            mainWindow.webContents.on('console-message', (_event, level, message) => {
+                if (level >= 2)
+                    console.log(`[PAGE ${level}] ${message}`);
+            });
+        }
+        else if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <style>
+            body { background: #0a0e27; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; font-family: sans-serif; color: white; }
+            .loader { text-align: center; }
+            h1 { font-size: 24px; } p { color: #888; }
+            button { margin-top: 20px; padding: 10px 30px; background: #8b5cf6; border: none; color: white; border-radius: 8px; cursor: pointer; font-size: 14px; }
+            button:hover { background: #7c3aed; }
+          </style>
+        </head>
+        <body>
+          <div class="loader">
+            <h1>Talk</h1>
+            <p>Сервер недоступен. Попробуйте позже.</p>
+            <button onclick="location.href='${REMOTE_URL}'">Повторить</button>
+          </div>
+        </body>
+        </html>
+      `)}`);
+        }
+    }
     else {
+        // Embedded server mode (offline / LAN)
         const indexPath = path.join(process.resourcesPath, 'web', 'dist', 'index.html');
         console.log('Loading from:', indexPath);
-        // Используем loadFile - он правильно обрабатывает относительные пути
         await mainWindow.loadFile(indexPath);
     }
     mainWindow.focus();
@@ -421,13 +510,21 @@ electron_1.app.whenReady().then(async () => {
     });
     createWindow();
     createTray();
-    startServer().then(async () => {
-        console.log('Server ready, loading app...');
-        await new Promise(resolve => setTimeout(resolve, 2000));
+    if (REMOTE_URL) {
+        // Remote server mode — no local server needed
+        console.log(`Remote mode: ${REMOTE_URL}`);
         await loadMainApp();
-    }).catch(err => {
-        console.error('Failed to start:', err);
-    });
+    }
+    else {
+        // Embedded server mode
+        startServer().then(async () => {
+            console.log('Server ready, loading app...');
+            await new Promise(resolve => setTimeout(resolve, 2000));
+            await loadMainApp();
+        }).catch(err => {
+            console.error('Failed to start:', err);
+        });
+    }
 });
 electron_1.app.on('window-all-closed', () => {
     // Работаем в трее
