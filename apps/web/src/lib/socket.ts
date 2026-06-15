@@ -24,7 +24,7 @@ export function connectSocket(token: string): Socket {
 
   socket = io(socketUrl, {
     auth: { token },
-    transports: ['websocket', 'polling'],
+    transports: ['websocket'],
     reconnectionAttempts: 100,
     reconnectionDelay: 1000,
     reconnectionDelayMax: 10000,
@@ -43,10 +43,6 @@ export function connectSocket(token: string): Socket {
 
   socket.on('connect_error', (err) => {
     if (import.meta.env.DEV) console.warn('[Socket] connection error:', err.message);
-    // If websocket fails, force polling fallback
-    if (socket && socket.io?.opts?.transports?.[0] === 'websocket') {
-      socket.io.opts.transports = ['polling'];
-    }
   });
 
   return socket;
