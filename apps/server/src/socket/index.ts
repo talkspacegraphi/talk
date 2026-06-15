@@ -925,8 +925,11 @@ export function setupSocket(io: Server) {
     socket.on('call_answer', (data: { targetUserId: string; answer: unknown }) => {
       const targetSockets = onlineUsers.get(data.targetUserId);
       if (targetSockets) {
-        for (const sid of targetSockets) {
-          io.to(sid).emit('call_answered', {
+        // Отправляем только на основной сокет — иначе onCallAnswered срабатывает дважды
+        // и второй вызов setRemoteDescription падает с "Called in wrong state: stable"
+        const primarySid = [...targetSockets].at(-1);
+        if (primarySid) {
+          io.to(primarySid).emit('call_answered', {
             from: userId,
             answer: data.answer,
           });
@@ -938,8 +941,10 @@ export function setupSocket(io: Server) {
     socket.on('ice_candidate', (data: { targetUserId: string; candidate: unknown }) => {
       const targetSockets = onlineUsers.get(data.targetUserId);
       if (targetSockets) {
-        for (const sid of targetSockets) {
-          io.to(sid).emit('ice_candidate', {
+        // Только на основной сокет — дублирование ICE кандидатов ломает соединение
+        const primarySid = [...targetSockets].at(-1);
+        if (primarySid) {
+          io.to(primarySid).emit('ice_candidate', {
             from: userId,
             candidate: data.candidate,
           });
