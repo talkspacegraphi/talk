@@ -849,7 +849,7 @@ const endCallSafe = useCallback(() => {
         callEndedRef.current = true;
         stopCallRingtone();
         stopDialTone();
-        s?.emit('call_end', { targetUserId: targetUserIdRef.current });
+        getSocket()?.emit('call_end', { targetUserId: targetUserIdRef.current });
         cleanup();
         // Играем звук недозвона на всех платформах
         playUnavailableSound();
@@ -2612,6 +2612,8 @@ const endCallSafe = useCallback(() => {
                     <SwitchCamera size={18} />
                   </button>
                 )}
+                {/* Демонстрация экрана — скрыта на Android (getDisplayMedia не поддерживается) */}
+                {!isAndroidWebView() && (
                 <button
                   onClick={toggleScreenShare}
                   className={`w-11 h-11 rounded-full flex items-center justify-center transition-colors ${isScreenSharing ? 'bg-vortex-500/30 text-vortex-400' : 'bg-white/10 text-white hover:bg-white/20'
@@ -2620,6 +2622,7 @@ const endCallSafe = useCallback(() => {
                 >
                   {isScreenSharing ? <MonitorOff size={18} /> : <Monitor size={18} />}
                 </button>
+                )}
                 {/* Speaker selector */}
                 <div className="relative">
                   <button
