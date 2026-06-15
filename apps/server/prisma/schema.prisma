@@ -167,6 +167,9 @@ model Story {
 
   user  User        @relation(fields: [userId], references: [id], onDelete: Cascade)
   views StoryView[]
+
+  @@index([expiresAt])
+  @@index([userId])
 }
 
 model StoryView {
