@@ -70,7 +70,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   isLoadingMore: false,
   hasMore: {},
   searchQuery: '',
-  drafts: JSON.parse(localStorage.getItem('vortex_drafts') || '{}'),
+  drafts: (() => { try { return JSON.parse(localStorage.getItem('vortex_drafts') || '{}'); } catch { return {}; } })(),
   scrollPositions: {},
 
   setActiveChat: (chatId) => set((state) => {
@@ -623,3 +623,23 @@ export const useChatStore = create<ChatState>((set, get) => ({
     });
   },
 }));
+
+// ─── Memory GC: trim inactive chat message buffers every 5 min ────────
+// Keeps active chat untouched; trims all others to last 30 messages.
+// Prevents unbounded RAM growth when the user scrolls back far in many chats.
+setInterval(() => {
+  const { activeChat, messages } = useChatStore.getState();
+  const trimmed: Record<string, unknown[]> = {};
+  let changed = false;
+  for (const [chatId, msgs] of Object.entries(messages)) {
+    if (chatId !== activeChat && (msgs as unknown[]).length > 30) {
+      trimmed[chatId] = (msgs as unknown[]).slice(-30);
+      changed = true;
+    }
+  }
+  if (changed) {
+    useChatStore.setState((state) => ({
+      messages: { ...state.messages, ...trimmed },
+    }));
+  }
+}, 5 * 60 * 1000);
