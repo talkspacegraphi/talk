@@ -29,7 +29,7 @@ const REGISTRATION_COOLDOWN_MS = 10 * 1000; // 10 seconds for dev (was 5 minutes
 setInterval(() => {
   const now = Date.now();
   for (const [ip, timestamp] of registrationCooldowns) {
-    if (now - timestamp > REGISTRATION_COOLDOWN_MS * 10) {
+    if (now - timestamp > REGISTRATION_COOLDOWN_MS) {
       registrationCooldowns.delete(ip);
     }
   }
