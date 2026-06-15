@@ -1819,6 +1819,18 @@ const endCallSafe = useCallback(() => {
     const onCallAnswered = async (data: { from: string; answer: RTCSessionDescriptionInit }) => {
       if (!peerRef.current || data.from !== targetUserIdRef.current) return;
       nativeCallLog(`call_answered from=${data.from}`);
+
+      // Защита от двойного вызова — если уже в состоянии stable, ответ уже применён
+      if (peerRef.current.signalingState === 'stable') {
+        nativeCallLog('call_answered: already stable, ignoring duplicate answer');
+        return;
+      }
+      // Ответ можно применять только в состоянии have-local-offer
+      if (peerRef.current.signalingState !== 'have-local-offer') {
+        nativeCallLog(`call_answered: wrong signalingState=${peerRef.current.signalingState}, ignoring`);
+        return;
+      }
+
       if (callTimeoutRef.current) clearTimeout(callTimeoutRef.current);
       stopCallRingtone();
       stopDialTone();
