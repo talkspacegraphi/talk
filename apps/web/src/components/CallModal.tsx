@@ -635,6 +635,8 @@ const toggleEarpiece = useCallback(async () => {
       }
     };
 
+    // Apply bitrate limits once connected to reduce latency - handled in main onconnectionstatechange below
+
     pc.ontrack = (e) => {
       console.log('[ontrack] Received track:', e.track.kind, 'readyState:', e.track.readyState,
         'enabled:', e.track.enabled, 'streams:', e.streams.length,
@@ -706,16 +708,35 @@ const toggleEarpiece = useCallback(async () => {
       setTimeout(checkVideo, 1500);
     };
 
-    pc.onconnectionstatechange = () => {
+    pc.onconnectionstatechange = async () => {
       if (callEndedRef.current) return;
       const state = pc.connectionState;
       nativeCallLog(`PC state: ${state}`);
-      if (state === 'failed') {
+      if (state === 'connected') {
+        // Clear any pending disconnect timeout — connection recovered
+        if (disconnectTimeoutRef.current) {
+          clearTimeout(disconnectTimeoutRef.current);
+          disconnectTimeoutRef.current = null;
+        }
+        // Apply bitrate limits to reduce latency
+        for (const sender of pc.getSenders()) {
+          try {
+            const params = sender.getParameters();
+            if (!params.encodings || params.encodings.length === 0) params.encodings = [{}];
+            if (sender.track?.kind === 'audio') {
+              params.encodings[0].maxBitrate = 64_000;
+            } else if (sender.track?.kind === 'video') {
+              params.encodings[0].maxBitrate = 500_000;
+              params.encodings[0].maxFramerate = 24;
+            }
+            await sender.setParameters(params);
+          } catch { /* браузер может не поддерживать */ }
+        }
+      } else if (state === 'failed') {
         // eslint-disable-next-line @typescript-eslint/no-use-before-define
         endCallSafe();
       } else if (state === 'disconnected') {
         // 'disconnected' is transient — give it time to recover before ending
-        // Android WebView needs more time due to network layer instability
         const gracePeriod = isAndroidWebView() ? 12000 : 5000;
         if (!disconnectTimeoutRef.current) {
           disconnectTimeoutRef.current = setTimeout(() => {
@@ -724,12 +745,6 @@ const toggleEarpiece = useCallback(async () => {
               endCallSafe();
             }
           }, gracePeriod);
-        }
-      } else if (state === 'connected') {
-        // Clear any pending disconnect timeout — connection recovered
-        if (disconnectTimeoutRef.current) {
-          clearTimeout(disconnectTimeoutRef.current);
-          disconnectTimeoutRef.current = null;
         }
       }
     };
@@ -916,6 +931,13 @@ const endCallSafe = useCallback(() => {
       await pc.setRemoteDescription(new RTCSessionDescription(incoming.offer));
       nativeCallLog('acceptCall: setRemoteDescription OK');
 
+      // Flush buffered ICE candidates immediately after setRemoteDescription
+      // (they may have arrived before we were ready)
+      for (const candidate of iceCandidateBufferRef.current) {
+        pc.addIceCandidate(new RTCIceCandidate(candidate)).catch(console.error);
+      }
+      iceCandidateBufferRef.current = [];
+
       // Now add local tracks — they reuse the transceivers created from the offer,
       // changing direction from recvonly to sendrecv
       stream.getTracks().forEach(track => {
@@ -953,12 +975,6 @@ const endCallSafe = useCallback(() => {
         localStreamRef.current = null;
         return;
       }
-
-      // Flush buffered ICE candidates
-      for (const candidate of iceCandidateBufferRef.current) {
-        pc.addIceCandidate(new RTCIceCandidate(candidate)).catch(console.error);
-      }
-      iceCandidateBufferRef.current = [];
 
       nativeCallLog('acceptCall: createAnswer...');
       const answer = await pc.createAnswer();
@@ -1170,6 +1186,11 @@ const endCallSafe = useCallback(() => {
   }, []);
 
   const toggleNoiseSuppression = useCallback(async () => {
+    // На Android WebView noise gate недоступен — показываем сообщение
+    if (isAndroidWebView()) {
+      alert(t('noiseSuppressionUnavailable') || 'Шумоподавление недоступно на этом устройстве');
+      return;
+    }
     if (noiseSuppression) {
       await removeNoiseGate();
     } else {
@@ -2624,7 +2645,8 @@ const endCallSafe = useCallback(() => {
                     </>
                   )}
                 </div>
-                {/* Noise suppression */}
+                {/* Noise suppression — скрыт на Android (не поддерживается) */}
+                {!isAndroidWebView() && (
                 <button
                   onClick={toggleNoiseSuppression}
                   className={`w-11 h-11 rounded-full flex items-center justify-center transition-colors ${noiseSuppression ? 'bg-emerald-500/20 text-emerald-400' : 'bg-white/10 text-white hover:bg-white/20'
@@ -2633,6 +2655,7 @@ const endCallSafe = useCallback(() => {
                 >
                   {noiseSuppression ? <ShieldCheck size={18} /> : <ShieldOff size={18} />}
                 </button>
+                )}
                 <button
                   onClick={endCallSafe}
                   className="w-14 h-14 rounded-full bg-red-500 hover:bg-red-600 flex items-center justify-center text-white shadow-xl shadow-red-500/30 transition-all hover:scale-105 ml-2"
