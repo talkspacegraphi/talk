@@ -28,6 +28,38 @@ const RATE_LIMIT_MAX = 10; // max events per window
 
 const MAX_TIMEOUT = 2_147_483_647; // Max safe setTimeout delay (~24.8 days)
 
+// ─── Membership cache (TTL=60s) — eliminates N+1 isChatMember queries ──
+// Key: `${chatId}:${userId}`, Value: boolean
+const membershipCache = new Map<string, { value: boolean; expiresAt: number }>();
+const MEMBERSHIP_TTL = 60_000;
+
+function getMembership(chatId: string, userId: string): boolean | undefined {
+  const key = `${chatId}:${userId}`;
+  const entry = membershipCache.get(key);
+  if (!entry) return undefined;
+  if (Date.now() > entry.expiresAt) { membershipCache.delete(key); return undefined; }
+  return entry.value;
+}
+
+function setMembership(chatId: string, userId: string, value: boolean): void {
+  membershipCache.set(`${chatId}:${userId}`, { value, expiresAt: Date.now() + MEMBERSHIP_TTL });
+}
+
+function invalidateMembership(chatId: string, userId: string): void {
+  membershipCache.delete(`${chatId}:${userId}`);
+}
+
+// Evict expired membership entries every 2 minutes
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, entry] of membershipCache) {
+    if (now > entry.expiresAt) membershipCache.delete(key);
+  }
+}, 120_000);
+
+// ─── Scheduled message timer registry (for clean cancellation) ───────
+const scheduledTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
 // ─── Content filtering ────────────────────────────────────────────────
 const PROHIBITED_PATTERNS = [
   // Прямые упоминания терроризма
@@ -97,10 +129,15 @@ setInterval(() => {
 }, 30_000);
 
 async function isChatMember(chatId: string, userId: string): Promise<boolean> {
+  const cached = getMembership(chatId, userId);
+  if (cached !== undefined) return cached;
   const member = await prisma.chatMember.findUnique({
     where: { chatId_userId: { chatId, userId } },
+    select: { chatId: true },
   });
-  return !!member;
+  const result = !!member;
+  setMembership(chatId, userId, result);
+  return result;
 }
 
 async function isBlocked(userId: string, targetUserId: string): Promise<boolean> {
@@ -119,12 +156,15 @@ export function setupSocket(io: Server) {
   // On startup, re-schedule any pending scheduled messages
   rescheduleMessages(io);
 
-  io.use((socket: AuthSocket, next) => {
+  io.use(async (socket: AuthSocket, next) => {
     const token = socket.handshake.auth.token;
     if (!token) return next(new Error('Требуется авторизация'));
 
     try {
       const decoded = jwt.verify(token, config.jwtSecret) as { userId: string };
+      // Check if token was blacklisted (user logged out)
+      const blacklisted = await prisma.tokenBlacklist.findUnique({ where: { token }, select: { token: true } });
+      if (blacklisted) return next(new Error('Токен отозван'));
       socket.userId = decoded.userId;
       next();
     } catch {
@@ -184,6 +224,7 @@ export function setupSocket(io: Server) {
     });
 
     socket.on('leave_chat', (chatId: string) => {
+      invalidateMembership(chatId, userId);
       socket.leave(`chat:${chatId}`);
     });
 
@@ -207,7 +248,7 @@ export function setupSocket(io: Server) {
       try {
         // Rate limit
         if (!checkRateLimit(userId)) {
-          socket.emit('error', { message: 'Слишком много сообщений, подождите' });
+          socket.emit('error', { message: 'Слишком много сообщений, подождите', clientId: data.clientId });
           return;
         }
 
@@ -391,7 +432,8 @@ export function setupSocket(io: Server) {
           });
 
           const delay = Math.min(scheduledAt.getTime() - Date.now(), MAX_TIMEOUT);
-          setTimeout(async () => {
+          const timer = setTimeout(async () => {
+            scheduledTimers.delete(message.id);
             try {
               // Check if message was deleted while waiting
               const current = await prisma.message.findUnique({ where: { id: message.id } });
@@ -467,6 +509,7 @@ export function setupSocket(io: Server) {
               console.error('Scheduled delivery error:', err);
             }
           }, delay);
+          scheduledTimers.set(message.id, timer);
           return;
         }
 
@@ -597,6 +640,8 @@ export function setupSocket(io: Server) {
 
         // Проверяем членство в чате
         if (!(await isChatMember(message.chatId, userId))) return;
+        // SECURITY FIX: only the sender can hard-delete their own message
+        if (message.senderId !== userId) return;
 
         // Delete media files from disk
         if (message.media && message.media.length > 0) {
@@ -627,6 +672,10 @@ export function setupSocket(io: Server) {
           data: { isDeleted: true, content: null },
         });
 
+        // Cancel in-memory scheduled timer if present
+        const pendingTimer = scheduledTimers.get(data.messageId);
+        if (pendingTimer) { clearTimeout(pendingTimer); scheduledTimers.delete(data.messageId); }
+
         io.to(`chat:${message.chatId}`).emit('message_deleted', {
           messageId: data.messageId,
           chatId: message.chatId,
@@ -647,11 +696,12 @@ export function setupSocket(io: Server) {
         if (!(await isChatMember(data.chatId, userId))) return;
 
         if (data.deleteForAll) {
-          // Удалить у всех — любой участник чата может удалить любое сообщение
+          // Удалить у всех — только свои сообщения!
           const messages = await prisma.message.findMany({
             where: {
               id: { in: data.messageIds },
               chatId: data.chatId,
+              senderId: userId,      // ← SECURITY FIX: only own messages
               isDeleted: false,
             },
             include: { media: true },
@@ -1305,17 +1355,21 @@ export function setupSocket(io: Server) {
             where: { blockedUserId: userId },
             select: { userId: true },
           });
-          const blockedBySet = new Set(blockedBy.map(b => b.userId));
 
-          // Send offline status only to users who haven't blocked this user
-          const allSockets = io.sockets.sockets;
-          for (const [sid, sock] of allSockets) {
-            const sockUserId = (sock as AuthSocket).userId;
-            if (sockUserId && !blockedBySet.has(sockUserId)) {
-              sock.emit('user_offline', {
-                userId,
-                lastSeen: now.toISOString(),
-              });
+          // Broadcast offline only to users who haven't blocked this user.
+          // We use targeted emits per blocker instead of iterating all sockets.
+          const blockedBySet = new Set(blockedBy.map(b => b.userId));
+          if (blockedBySet.size === 0) {
+            // Fast path: nobody blocked us — broadcast to everyone
+            socket.broadcast.emit('user_offline', { userId, lastSeen: now.toISOString() });
+          } else {
+            // Slow path (rare): skip sockets belonging to blockers
+            const allSockets = io.sockets.sockets;
+            for (const [, sock] of allSockets) {
+              const sockUserId = (sock as AuthSocket).userId;
+              if (sockUserId && !blockedBySet.has(sockUserId)) {
+                sock.emit('user_offline', { userId, lastSeen: now.toISOString() });
+              }
             }
           }
         }
@@ -1347,7 +1401,8 @@ async function rescheduleMessages(io: Server) {
       // Stagger overdue messages by 100ms each to avoid simultaneous DB spike
       const rawDelay = new Date(msg.scheduledAt!).getTime() - Date.now();
       const delay = Math.min(Math.max(i * 100, rawDelay), MAX_TIMEOUT);
-      setTimeout(async () => {
+      const timer = setTimeout(async () => {
+        scheduledTimers.delete(msg.id);
         try {
           // Check if message was deleted while waiting
           const current = await prisma.message.findUnique({ where: { id: msg.id } });
@@ -1389,6 +1444,7 @@ async function rescheduleMessages(io: Server) {
           console.error('Scheduled delivery error:', err);
         }
       }, delay);
+      scheduledTimers.set(msg.id, timer);
     }
 
     if (scheduled.length > 0) {
