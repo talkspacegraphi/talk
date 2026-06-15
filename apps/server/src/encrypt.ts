@@ -15,7 +15,6 @@ import path from 'path';
 const ALGORITHM = 'aes-256-gcm';
 const IV_LENGTH = 12; // 96 bits — recommended for GCM
 const AUTH_TAG_LENGTH = 16;
-const FILE_HEADER_LENGTH = IV_LENGTH + AUTH_TAG_LENGTH; // 28 bytes
 const PREFIX = 'enc:v1:';
 
 let encryptionKey: Buffer | null = null;
@@ -80,9 +79,12 @@ export function decryptText(ciphertext: string): string {
 
 // ─── File encryption ─────────────────────────────────────────────────
 
+const FILE_MAGIC = Buffer.from('VRTX'); // 4-byte magic header for encrypted files
+const ENCRYPTED_HEADER_LENGTH = FILE_MAGIC.length + IV_LENGTH + AUTH_TAG_LENGTH; // 32 bytes
+
 /**
  * Encrypt a file in-place on disk.
- * Replaces the original file with: [IV 12B][AuthTag 16B][ciphertext...]
+ * Format: [MAGIC 4B][IV 12B][AuthTag 16B][ciphertext...]
  */
 export function encryptFileInPlace(filePath: string): void {
   if (!encryptionKey) return;
@@ -93,24 +95,22 @@ export function encryptFileInPlace(filePath: string): void {
   const encrypted = Buffer.concat([cipher.update(plainData), cipher.final()]);
   const authTag = cipher.getAuthTag();
 
-  // Write: IV + AuthTag + Ciphertext
-  const output = Buffer.concat([iv, authTag, encrypted]);
+  // Write: MAGIC + IV + AuthTag + Ciphertext
+  const output = Buffer.concat([FILE_MAGIC, iv, authTag, encrypted]);
   fs.writeFileSync(filePath, output);
 }
 
 /**
- * Check if a file appears to be encrypted (has valid header size).
- * This is a heuristic — not 100% reliable on tiny files, but good enough.
+ * Reliably check if a file was encrypted by us (magic bytes check).
  */
 export function isFileEncrypted(filePath: string): boolean {
+  if (!encryptionKey) return false;
   try {
-    const stat = fs.statSync(filePath);
-    // Encrypted files must be at least 28 bytes (header).
-    // We also check if decryption with the key succeeds on the first chunk.
-    if (stat.size < FILE_HEADER_LENGTH) return false;
-    // If encryption is disabled, treat all files as plain
-    if (!encryptionKey) return false;
-    return true; // Assume encrypted if key is configured and file is large enough
+    const fd = fs.openSync(filePath, 'r');
+    const header = Buffer.alloc(FILE_MAGIC.length);
+    const read = fs.readSync(fd, header, 0, FILE_MAGIC.length, 0);
+    fs.closeSync(fd);
+    return read === FILE_MAGIC.length && header.equals(FILE_MAGIC);
   } catch {
     return false;
   }
@@ -118,25 +118,27 @@ export function isFileEncrypted(filePath: string): boolean {
 
 /**
  * Decrypt a file and return the plain-text Buffer.
- * Returns null if decryption fails (file may be unencrypted).
+ * Returns null if file is not encrypted or decryption fails.
  */
 export function decryptFileToBuffer(filePath: string): Buffer | null {
   if (!encryptionKey) return null;
 
   try {
     const data = fs.readFileSync(filePath);
-    if (data.length < FILE_HEADER_LENGTH) return null;
+    if (data.length < ENCRYPTED_HEADER_LENGTH) return null;
 
-    const iv = data.subarray(0, IV_LENGTH);
-    const authTag = data.subarray(IV_LENGTH, FILE_HEADER_LENGTH);
-    const ciphertext = data.subarray(FILE_HEADER_LENGTH);
+    // Verify magic bytes
+    if (!data.subarray(0, FILE_MAGIC.length).equals(FILE_MAGIC)) return null;
+
+    const iv = data.subarray(FILE_MAGIC.length, FILE_MAGIC.length + IV_LENGTH);
+    const authTag = data.subarray(FILE_MAGIC.length + IV_LENGTH, ENCRYPTED_HEADER_LENGTH);
+    const ciphertext = data.subarray(ENCRYPTED_HEADER_LENGTH);
 
     const decipher = crypto.createDecipheriv(ALGORITHM, encryptionKey, iv);
     decipher.setAuthTag(authTag);
     const decrypted = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
     return decrypted;
   } catch {
-    // Decryption failed — file is likely not encrypted (legacy)
     return null;
   }
 }
