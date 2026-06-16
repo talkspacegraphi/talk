@@ -641,11 +641,12 @@ export function setupSocket(io: Server) {
         if (!(await isChatMember(data.chatId, userId))) return;
 
         if (data.deleteForAll) {
-          // Удалить у всех — любой участник чата может удалить любое сообщение
+          // Удалить у всех — только свои сообщения (senderId === userId)
           const messages = await prisma.message.findMany({
             where: {
               id: { in: data.messageIds },
               chatId: data.chatId,
+              senderId: userId,  // only own messages
               isDeleted: false,
             },
             include: { media: true },
@@ -1238,6 +1239,9 @@ export function setupSocket(io: Server) {
 
     socket.on('delete_chat_for_user', async (data: { chatId: string; userId: string }) => {
       if (!data.chatId || !data.userId) return;
+      // Verify both the sender and the target are members of this chat
+      if (!(await isChatMember(data.chatId, userId))) return;
+      if (!(await isChatMember(data.chatId, data.userId))) return;
       const targetSockets = onlineUsers.get(data.userId);
       if (targetSockets) {
         for (const sid of targetSockets) {
