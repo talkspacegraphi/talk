@@ -861,6 +861,14 @@ export function setupSocket(io: Server) {
     socket.on('call_offer', async (data: { targetUserId: string; offer: unknown; callType: 'voice' | 'video'; chatId?: string }) => {
       if (!data.targetUserId) return;
 
+      // If the caller is already in a different active call (e.g. another tab/device),
+      // refuse to start a second one to avoid clobbering call state.
+      const callerExistingPartner = activeOneToOneCalls.get(userId);
+      if (callerExistingPartner && callerExistingPartner !== data.targetUserId) {
+        socket.emit('call_unavailable', { targetUserId: data.targetUserId, reason: 'caller_busy' });
+        return;
+      }
+
       // Find a common personal chat between caller and target (server-side lookup for security)
       let chatId = data.chatId;
       if (!chatId) {
@@ -889,6 +897,14 @@ export function setupSocket(io: Server) {
 
       const targetSockets = onlineUsers.get(data.targetUserId);
       if (targetSockets) {
+        // If target is already in an active call (with someone else), reject —
+        // otherwise the new offer overwrites tracking and call_incoming fires
+        // mid-conversation, breaking the existing call's state on the client.
+        const existingPartner = activeOneToOneCalls.get(data.targetUserId);
+        if (existingPartner && existingPartner !== userId) {
+          socket.emit('call_unavailable', { targetUserId: data.targetUserId, reason: 'busy' });
+          return;
+        }
         // Track active 1-to-1 call
         activeOneToOneCalls.set(userId, data.targetUserId);
         activeOneToOneCalls.set(data.targetUserId, userId);
