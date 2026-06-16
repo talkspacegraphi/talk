@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, type MutableRefObject } from 'react';
 // framer-motion removed: caused React error #321 with React 19.
 // Using plain <div> with CSS animations (see .call-modal-* classes in index.css).
 import { Phone, PhoneOff, Video, VideoOff, Mic, MicOff, Monitor, MonitorOff, Maximize, Minimize, SwitchCamera, Minimize2, Maximize2, Volume2, ShieldCheck, ShieldOff, ChevronUp, X, Minus } from 'lucide-react';
@@ -133,9 +133,16 @@ async function releaseMicrophoneForAndroid(): Promise<void> {
     await new Promise(r => setTimeout(r, 1500));
   }
 }
+interface MediaRefs {
+  localStreamRef: MutableRefObject<MediaStream | null>;
+  noiseGateTrackRef: MutableRefObject<MediaStreamTrack | null>;
+  noiseGateCtxRef: MutableRefObject<AudioContext | null>;
+}
+
 async function getMediaWithCameraFallback(
   wantVideo: boolean,
-  preferDeviceId?: string
+  preferDeviceId?: string,
+  refs?: MediaRefs
 ): Promise<{ stream: MediaStream; hasVideo: boolean }> {
   if (!navigator.mediaDevices?.getUserMedia) {
     throw new Error('navigator.mediaDevices is not available. Calls require HTTPS or localhost.');
@@ -144,17 +151,17 @@ async function getMediaWithCameraFallback(
   // Kill ALL active media tracks to free the microphone
   const killAllTracks = async () => {
     // Stop local call streams
-    if (localStreamRef.current) {
-      localStreamRef.current.getTracks().forEach(t => { t.stop(); t.enabled = false; });
-      nativeCallLog(`Killed localStream: ${localStreamRef.current.getTracks().length} tracks`);
+    if (refs?.localStreamRef.current) {
+      refs.localStreamRef.current.getTracks().forEach(t => { t.stop(); t.enabled = false; });
+      nativeCallLog(`Killed localStream: ${refs.localStreamRef.current.getTracks().length} tracks`);
     }
     // Stop noise gate tracks
-    if (noiseGateTrackRef.current) {
-      noiseGateTrackRef.current.stop();
+    if (refs?.noiseGateTrackRef.current) {
+      refs.noiseGateTrackRef.current.stop();
       nativeCallLog('Killed noiseGate track');
     }
-    if (noiseGateCtxRef.current) {
-      noiseGateCtxRef.current.close().catch(() => {});
+    if (refs?.noiseGateCtxRef.current) {
+      refs.noiseGateCtxRef.current.close().catch(() => {});
     }
     // Force release by re-acquiring and immediately stopping
     try {
@@ -790,7 +797,7 @@ const endCallSafe = useCallback(() => {
       // Запускаем гудки сразу при начале вызова
       playCallRingtone();
       startDialTone();
-      const { stream, hasVideo } = await getMediaWithCameraFallback(callType === 'video');
+      const { stream, hasVideo } = await getMediaWithCameraFallback(callType === 'video', undefined, { localStreamRef, noiseGateTrackRef, noiseGateCtxRef });
       nativeCallLog(`startCall: getUserMedia OK audio=${stream.getAudioTracks().length} video=${stream.getVideoTracks().length} hasVideo=${hasVideo}`);
       console.log('[startCall] Got media — hasVideo:', hasVideo,
         'audioTracks:', stream.getAudioTracks().length,
@@ -891,7 +898,7 @@ const endCallSafe = useCallback(() => {
     try {
       console.log('[acceptCall] Getting media, wantVideo:', incoming.callType === 'video');
       nativeCallLog('acceptCall: requesting getUserMedia...');
-      const { stream, hasVideo } = await getMediaWithCameraFallback(incoming.callType === 'video');
+      const { stream, hasVideo } = await getMediaWithCameraFallback(incoming.callType === 'video', undefined, { localStreamRef, noiseGateTrackRef, noiseGateCtxRef });
       nativeCallLog(`acceptCall: getUserMedia OK audio=${stream.getAudioTracks().length} video=${stream.getVideoTracks().length}`);
       console.log('[acceptCall] Got media — hasVideo:', hasVideo,
         'audioTracks:', stream.getAudioTracks().length,
@@ -1454,7 +1461,7 @@ const endCallSafe = useCallback(() => {
         setIsVideoOff(false);
       } else {
         try {
-          const { stream: camStream, hasVideo } = await getMediaWithCameraFallback(true);
+          const { stream: camStream, hasVideo } = await getMediaWithCameraFallback(true, undefined, { localStreamRef, noiseGateTrackRef, noiseGateCtxRef });
           if (!hasVideo) {
             console.warn('No camera available');
             return;
@@ -2042,8 +2049,20 @@ const endCallSafe = useCallback(() => {
           className="call-modal-fade-in fixed inset-0 z-[100] flex flex-col overflow-hidden"
           style={{ background: 'linear-gradient(180deg, #0a0a0f 0%, #111118 40%, #111118 60%, #0a0a0f 100%)' }}
         >
-          {/* Постоянные видеоэлементы — всегда в DOM, ref никогда не меняется */}
-          <video ref={remoteVideoRef} autoPlay playsInline muted className="hidden" />
+          {/* Единственный remoteVideoRef video-элемент, всегда смонтирован — ref никогда
+              не "перепрыгивает" между разными DOM-узлами. Видимость/позиция переключаются
+              классами в зависимости от состояния звонка. */}
+          <video
+            ref={remoteVideoRef}
+            autoPlay
+            playsInline
+            muted
+            className={
+              callState === 'connected' && hasRemoteVideo && !isVideoOff
+                ? 'absolute inset-0 w-full h-full object-contain bg-black'
+                : 'hidden'
+            }
+          />
           {/* localVideoRef — скрытый, используется как источник srcObject.
               Видимые PIP-элементы получают srcObject из него через useEffect */}
           <video ref={localVideoRef} autoPlay playsInline muted className="hidden" />
@@ -2051,17 +2070,6 @@ const endCallSafe = useCallback(() => {
           {/* ========== CONNECTED + REMOTE VIDEO → Fullscreen remote ========== */}
           {callState === 'connected' && hasRemoteVideo && !isVideoOff ? (
             <>
-              {/* Remote video fullscreen */}
-              <div className="absolute inset-0 bg-black">
-                <video
-                  ref={remoteVideoRef}
-                  autoPlay
-                  playsInline
-                  muted
-                  className="w-full h-full object-contain bg-black"
-                />
-              </div>
-
               {/* Name + duration at top + кнопка свернуть */}
               <div className="absolute top-0 left-0 right-0 z-20 bg-gradient-to-b from-black/70 to-transparent pt-12 pb-8 px-4 flex items-start">
                 <button
@@ -2154,7 +2162,7 @@ const endCallSafe = useCallback(() => {
                   </div>
                   <span className="text-xs text-zinc-400">Написать</span>
                 </button>
-                <button onClick={() => { setShowNoAnswerScreen(false); callEndedRef.current = false; setCallState('idle'); setTimeout(() => setCallState('calling'), 100); }} className="flex flex-col items-center gap-2">
+                <button onClick={() => { setShowNoAnswerScreen(false); callEndedRef.current = false; callInProgressRef.current = false; setCallState('idle'); }} className="flex flex-col items-center gap-2">
                   <div className="w-16 h-16 rounded-full bg-emerald-500/20 flex items-center justify-center text-emerald-400">
                     <Phone size={24} />
                   </div>
