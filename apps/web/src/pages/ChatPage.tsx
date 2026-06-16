@@ -53,6 +53,8 @@ export default function ChatPage() {
 
   // Call state
   const [callOpen, setCallOpen] = useState(false);
+  const callOpenRef = useRef(false);
+  useEffect(() => { callOpenRef.current = callOpen; }, [callOpen]);
   const [callTarget, setCallTarget] = useState<UserBasic | null>(null);
   const [callType, setCallType] = useState<'voice' | 'video'>('voice');
   const [incomingCall, setIncomingCall] = useState<CallInfo | null>(null);
@@ -289,6 +291,13 @@ export default function ChatPage() {
     });
 
     socket.on('call_incoming', async (data: CallInfo) => {
+      // If a call is already open (incoming or outgoing/connected), refuse the
+      // new one instead of overwriting state — that used to remount CallModal
+      // via key={callSessionId} and silently kill the active call.
+      if (callOpenRef.current) {
+        socket.emit('call_decline', { targetUserId: data.from });
+        return;
+      }
       // Use callerInfo from server if available, otherwise look up from chats
       let callerInfo: UserBasic | null = data.callerInfo || null;
       if (!callerInfo) {
