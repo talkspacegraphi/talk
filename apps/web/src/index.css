@@ -476,3 +476,26 @@ body.font-serif {
 .call-modal-pop-in {
   animation: call-modal-pop-in 220ms cubic-bezier(0.22, 1, 0.36, 1) both;
 }
+
+/* === Message bubble entry (replaces framer-motion spring per bubble) ===
+   The chat list can have dozens of these mounted at once (virtualized list
+   + overscan). A JS spring simulation per bubble was measurably heavier on
+   low-end Android WebViews than a single CSS transform/opacity animation,
+   which the browser can run on the compositor thread. */
+@keyframes message-bubble-enter {
+  from { opacity: 0; transform: translateY(6px) scale(0.97); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.message-bubble-enter {
+  animation: message-bubble-enter 180ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes css-pulse-glow {
+  0%, 100% { opacity: 0; }
+  50% { opacity: 1; }
+}
+
+.css-pulse-glow {
+  animation: css-pulse-glow 2s ease-in-out infinite;
+}
