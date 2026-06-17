@@ -36,8 +36,8 @@ export default function ChatPage() {
     setPinnedMessage,
     removePinnedMessage,
     clearStore,
-    activeChat,
-  } = useChatStore();
+  } = useChatStore.getState();
+  const activeChat = useChatStore((s) => s.activeChat);
   const { user } = useAuthStore();
   const { chatTheme } = useThemeStore();
   const initialized = useRef(false);
