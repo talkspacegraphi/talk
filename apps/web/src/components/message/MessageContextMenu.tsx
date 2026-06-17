@@ -41,7 +41,7 @@ function MessageContextMenu({
   onStartSelectionMode,
 }: MessageContextMenuProps) {
   const { t } = useLang();
-  const { setEditingMessage } = useChatStore();
+  const setEditingMessage = useChatStore((s) => s.setEditingMessage);
   const user = useAuthStore(s => s.user);
   const contextMenuRef = useRef<HTMLDivElement>(null);
   const [deleteMenuMode, setDeleteMenuMode] = useState(false);
