@@ -26,7 +26,7 @@ interface GroupSettingsProps {
 
 export default function GroupSettings({ chat, onClose }: GroupSettingsProps) {
   const { user } = useAuthStore();
-  const { updateChat } = useChatStore();
+  const updateChat = useChatStore((s) => s.updateChat);
   const { t } = useLang();
 
   const currentMember = chat.members.find((m) => m.user.id === user?.id);

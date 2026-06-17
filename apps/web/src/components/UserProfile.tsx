@@ -22,7 +22,8 @@ type MediaTab = 'media' | 'files' | 'links';
 
 export default function UserProfile({ userId, chatId, onClose, isSelf, onStartCall }: UserProfileProps) {
   const { user: authUser } = useAuthStore();
-  const { setActiveChat, chats } = useChatStore();
+  const setActiveChat = useChatStore((s) => s.setActiveChat);
+  const chats = useChatStore((s) => s.chats);
   const { t, lang } = useLang();
   const { showToast } = useToastStore();
   const [profile, setProfile] = useState<User | null>(null);

@@ -14,7 +14,7 @@ interface SideMenuProps {
 
 export default function SideMenu({ isOpen, onClose }: SideMenuProps) {
   const { user, updateUser } = useAuthStore();
-  const { clearStore } = useChatStore();
+  const clearStore = useChatStore((s) => s.clearStore);
   const { t, lang, setLang } = useLang();
 
   const [view, setView] = useState<SideView>('main');

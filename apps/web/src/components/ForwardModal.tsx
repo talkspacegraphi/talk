@@ -12,7 +12,7 @@ interface ForwardModalProps {
 }
 
 export default function ForwardModal({ onClose, onForward }: ForwardModalProps) {
-    const { chats } = useChatStore();
+    const chats = useChatStore((s) => s.chats);
     const { user } = useAuthStore();
     const { t } = useLang();
     const [search, setSearch] = useState('');

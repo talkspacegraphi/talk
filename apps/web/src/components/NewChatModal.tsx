@@ -16,7 +16,9 @@ type Mode = 'personal' | 'group-select' | 'group-name';
 export default function NewChatModal({ onClose }: NewChatModalProps) {
   const { user } = useAuthStore();
   const { t } = useLang();
-  const { addChat, setActiveChat, loadMessages } = useChatStore();
+  const addChat = useChatStore((s) => s.addChat);
+  const setActiveChat = useChatStore((s) => s.setActiveChat);
+  const loadMessages = useChatStore((s) => s.loadMessages);
   const [mode, setMode] = useState<Mode>('personal');
   const [query, setQuery] = useState('');
   const [users, setUsers] = useState<UserPresence[]>([]);
