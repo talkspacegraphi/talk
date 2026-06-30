@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState, lazy, Suspense } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useChatStore } from '../stores/chatStore';
 import { useAuthStore } from '../stores/authStore';
 import { useThemeStore } from '../stores/themeStore';
+import { useCallStore } from '../stores/callStore';
 import { getSocket, disconnectSocket, onConnectionStatusChange, type ConnectionStatus } from '../lib/socket';
 import { api } from '../lib/api';
 import { playNotificationSound, isChatMuted } from '../lib/sounds';
@@ -14,8 +15,7 @@ import Sidebar from '../components/Sidebar';
 import ChatView from '../components/ChatView';
 import UserProfile from '../components/UserProfile';
 
-const CallModal = lazy(() => import('../components/CallModal'));
-const GroupCallModal = lazy(() => import('../components/GroupCallModal'));
+// CallModal & GroupCallModal are now rendered in App.tsx outside AnimatePresence
 
 export default function ChatPage() {
   const {
@@ -52,24 +52,12 @@ export default function ChatPage() {
     return () => window.removeEventListener('resize', checkMobile);
   }, []);
 
-  // Call state
-  const [callOpen, setCallOpen] = useState(false);
-  const callOpenRef = useRef(false);
-  useEffect(() => { callOpenRef.current = callOpen; }, [callOpen]);
-  const [callTarget, setCallTarget] = useState<UserBasic | null>(null);
-  const [callType, setCallType] = useState<'voice' | 'video'>('voice');
-  const [incomingCall, setIncomingCall] = useState<CallInfo | null>(null);
-  const [callSessionId, setCallSessionId] = useState(0);
+  const { startCall, startGroupCall, closeCall, closeGroupCall, setIncomingCall } = useCallStore();
   const [deliveryNotification, setDeliveryNotification] = useState<string | null>(null);
   const deliveryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const unreadCountRef = useRef(0);
 
-  // Group call state
-  const [groupCallOpen, setGroupCallOpen] = useState(false);
-  const [groupCallChatId, setGroupCallChatId] = useState('');
-  const [groupCallChatName, setGroupCallChatName] = useState('');
-  const [groupCallType, setGroupCallType] = useState<'voice' | 'video'>('voice');
-  const [groupCallSessionId, setGroupCallSessionId] = useState(0);
+  // Group call handled by callStore
 
   const [showWarningModal, setShowWarningModal] = useState(false);
   const [warningMessage, setWarningMessage] = useState('');
@@ -335,8 +323,8 @@ export default function ChatPage() {
     socket.on('call_incoming', async (data: CallInfo) => {
       // If a call is already open (incoming or outgoing/connected), refuse the
       // new one instead of overwriting state — that used to remount CallModal
-      // via key={callSessionId} and silently kill the active call.
-      if (callOpenRef.current) {
+      // via key={sessionId} and silently kill the active call.
+      if (useCallStore.getState().call.isOpen) {
         socket.emit('call_decline', { targetUserId: data.from });
         return;
       }
@@ -381,7 +369,6 @@ export default function ChatPage() {
           }
         }
       }
-      setCallTarget(null); // Clear any previous outgoing target
       setIncomingCall({
         from: data.from,
         offer: data.offer,
@@ -389,9 +376,6 @@ export default function ChatPage() {
         chatId: data.chatId,
         callerInfo,
       });
-      setCallType(data.callType);
-      setCallSessionId(id => id + 1);
-      setCallOpen(true);
     });
 
     socket.on('content_warning', (data: { message: string; word: string; timestamp: string; clientId?: string }) => {
@@ -431,29 +415,19 @@ export default function ChatPage() {
   }, [user?.id]);
 
   const handleStartCall = (targetUser: UserBasic, type: 'voice' | 'video') => {
-    setCallTarget(targetUser);
-    setCallType(type);
-    setIncomingCall(null);
-    setCallSessionId(id => id + 1);
-    setCallOpen(true);
+    startCall(targetUser, type);
   };
 
   const handleStartGroupCall = (chatId: string, chatName: string, type: 'voice' | 'video') => {
-    setGroupCallChatId(chatId);
-    setGroupCallChatName(chatName);
-    setGroupCallType(type);
-    setGroupCallSessionId(id => id + 1);
-    setGroupCallOpen(true);
+    startGroupCall(chatId, chatName, type);
   };
 
   const handleCloseCall = () => {
-    setCallOpen(false);
-    setCallTarget(null);
-    setIncomingCall(null);
+    closeCall();
   };
 
   const handleCloseGroupCall = () => {
-    setGroupCallOpen(false);
+    closeGroupCall();
   };
 
   return (
@@ -572,27 +546,7 @@ export default function ChatPage() {
       </AnimatePresence>
     </motion.div>
 
-    {/* CallModal outside motion.div so position: fixed works relative to viewport */}
-    <Suspense fallback={null}>
-      <CallModal
-        key={callSessionId}
-        isOpen={callOpen}
-        onClose={handleCloseCall}
-        targetUser={callTarget}
-        callType={callType}
-        incoming={incomingCall}
-      />
-      <GroupCallModal
-        key={`gc-${groupCallSessionId}`}
-        isOpen={groupCallOpen}
-        onClose={handleCloseGroupCall}
-        chatId={groupCallChatId}
-        chatName={groupCallChatName}
-        callType={groupCallType}
-      />
-    </Suspense>
-
-    {/* Профиль — вне motion.div чтобы position: fixed работал относительно viewport */}
+    {/* Profile — outside motion.div so position: fixed works relative to viewport */}
     <AnimatePresence>
       {profileUserId && (
         <UserProfile

@@ -2,15 +2,19 @@ import { useEffect, Suspense, lazy } from 'react';
 import { AnimatePresence } from 'framer-motion';
 import { useAuthStore } from './stores/authStore';
 import { useThemeStore } from './stores/themeStore';
+import { useCallStore } from './stores/callStore';
 import CustomTitleBar from './components/CustomTitleBar';
 import ErrorBoundary from './components/ErrorBoundary';
 
 const AuthPage = lazy(() => import('./pages/AuthPage'));
 const ChatPage = lazy(() => import('./pages/ChatPage'));
+const CallModal = lazy(() => import('./components/CallModal'));
+const GroupCallModal = lazy(() => import('./components/GroupCallModal'));
 
 export default function App() {
   const { token, user, checkAuth, isLoading } = useAuthStore();
   const { appFont } = useThemeStore();
+  const { call, groupCall, closeCall, closeGroupCall } = useCallStore();
 
   useEffect(() => {
     checkAuth();
@@ -60,6 +64,29 @@ export default function App() {
           )}
         </AnimatePresence>
       </Suspense>
+
+      {/* CallModals rendered OUTSIDE AnimatePresence so position: fixed escapes its stacking context */}
+      {token && user && (
+        <Suspense fallback={null}>
+          <CallModal
+            key={`call-${call.sessionId}`}
+            isOpen={call.isOpen}
+            onClose={closeCall}
+            targetUser={call.targetUser}
+            callType={call.callType}
+            incoming={call.incoming}
+          />
+          <GroupCallModal
+            key={`gc-${groupCall.sessionId}`}
+            isOpen={groupCall.isOpen}
+            onClose={closeGroupCall}
+            chatId={groupCall.chatId}
+            chatName={groupCall.chatName}
+            callType={groupCall.callType}
+          />
+        </Suspense>
+      )}
+
     </ErrorBoundary>
   );
 }
