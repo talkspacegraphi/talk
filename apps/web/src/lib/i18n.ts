@@ -303,6 +303,10 @@ const translations = {
     stop: 'Остановить',
     currentKey: 'Текущая клавиша',
     pressKey: 'Нажмите любую клавишу...',
+    // Network status
+    waitingForNetwork: 'Ожидание сети',
+    updating: 'Обновление',
+    retry: 'Повторить',
   },
   en: {
     myProfile: 'My Profile',
@@ -576,6 +580,10 @@ const translations = {
     stop: 'Stop',
     currentKey: 'Current key',
     pressKey: 'Press any key...',
+    // Network status
+    waitingForNetwork: 'Waiting for network',
+    updating: 'Updating',
+    retry: 'Retry',
   },
 } as const;
 

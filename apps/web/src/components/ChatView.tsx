@@ -36,11 +36,10 @@ import MessageBubble from './MessageBubble';
 import MessageInput from './MessageInput';
 import TypingIndicator from './TypingIndicator';
 
-import Tooltip from './Tooltip';
+import Avatar from './Avatar';
 import GroupSettings from './GroupSettings';
 import ForwardModal from './ForwardModal';
 import ConfirmModal from './ConfirmModal';
-import Avatar from './Avatar';
 import { useThemeStore } from '../stores/themeStore';
 
 const EMPTY_MESSAGES: Message[] = [];
@@ -808,18 +807,16 @@ export default function ChatView({ onStartCall, onStartGroupCall, profileUserId,
           className="chat-header h-[68px] md:h-[76px] flex items-center justify-between px-4 md:px-6 border-b border-border/40 bg-surface-secondary/80 backdrop-blur-xl z-20 flex-shrink-0"
         >
           {/* Back button */}
-          <Tooltip text={t('back') || 'Назад'} shortcut="Esc">
-            <motion.button
-              initial={{ opacity: 0, x: -10 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -10 }}
-              transition={{ duration: 0.2 }}
-              onClick={() => setActiveChat(null)}
-              className="p-2.5 rounded-xl hover:bg-surface-hover active:scale-95 transition-all text-zinc-400 hover:text-white mr-2"
-            >
-              <ArrowLeft size={22} strokeWidth={2.5} />
-            </motion.button>
-          </Tooltip>
+          <motion.button
+            initial={{ opacity: 0, x: -10 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: -10 }}
+            transition={{ duration: 0.2 }}
+            onClick={() => setActiveChat(null)}
+            className="p-2.5 rounded-xl hover:bg-surface-hover active:scale-95 transition-all text-zinc-400 hover:text-white mr-2"
+          >
+            <ArrowLeft size={22} strokeWidth={2.5} />
+          </motion.button>
           <button
             className="flex items-center gap-3 min-w-0 flex-1 group transition-all overflow-hidden"
             onClick={() => {
@@ -850,7 +847,7 @@ export default function ChatView({ onStartCall, onStartGroupCall, profileUserId,
               )}
             </div>
             <div className="min-w-0 text-left overflow-hidden">
-              <h3 className="text-base font-semibold text-white truncate drop-shadow-sm group-hover:text-accent/90 transition-colors">{chatName}</h3>
+              <h3 className="text-base font-semibold text-white truncate drop-shadow-sm transition-colors">{chatName}</h3>
               <p className="text-xs text-zinc-400 truncate">
                 {isFavorites
                   ? t('favoritesDescription')
@@ -902,70 +899,62 @@ export default function ChatView({ onStartCall, onStartGroupCall, profileUserId,
               )}
             </AnimatePresence>
 
-            <Tooltip text={showSearch ? (t('close') || 'Закрыть') : (t('searchMessages') || 'Поиск')} shortcut="Ctrl+F">
-              <button
-                onClick={() => {
-                  if (showSearch) {
-                    setShowSearch(false);
-                    setSearchText('');
-                    setSearchResults([]);
-                  } else {
-                    openSearch();
-                  }
-                }}
-                className="p-2 rounded-lg hover:bg-surface-hover transition-colors text-zinc-400 hover:text-white hidden md:block"
-              >
-                {showSearch ? <X size={18} /> : <Search size={18} />}
-              </button>
-            </Tooltip>
+            <button
+              onClick={() => {
+                if (showSearch) {
+                  setShowSearch(false);
+                  setSearchText('');
+                  setSearchResults([]);
+                } else {
+                  openSearch();
+                }
+              }}
+              className="p-2 rounded-lg hover:bg-surface-hover transition-colors text-zinc-400 hover:text-white hidden md:block"
+            >
+              {showSearch ? <X size={18} /> : <Search size={18} />}
+            </button>
 
             {!isFavorites && (
               <>
-                <Tooltip text={t('call') || 'Начать голосовой звонок'}>
-                  <button
-                    onClick={() => {
-                      if (chat.type === 'personal' && otherMember) {
-                        onStartCall?.(otherMember.user, 'voice');
-                      } else if (chat.type === 'group') {
-                        onStartGroupCall?.(chat.id, chat.name || 'Group', 'voice');
-                      }
-                    }}
-                    className="p-2 rounded-lg hover:bg-surface-hover transition-colors text-zinc-400 hover:text-white hidden md:block"
-                  >
-                    <Phone size={18} />
-                  </button>
-                </Tooltip>
-                <Tooltip text={t('videoCall') || 'Начать видеозвонок'}>
-                  <button
-                    onClick={() => {
-                      if (chat.type === 'personal' && otherMember) {
-                        onStartCall?.(otherMember.user, 'video');
-                      } else if (chat.type === 'group') {
-                        onStartGroupCall?.(chat.id, chat.name || 'Group', 'video');
-                      }
-                    }}
-                    className="p-2 rounded-lg hover:bg-surface-hover transition-colors text-zinc-400 hover:text-white hidden md:block"
-                  >
-                    <Video size={18} />
-                  </button>
-                </Tooltip>
+                <button
+                  onClick={() => {
+                    if (chat.type === 'personal' && otherMember) {
+                      onStartCall?.(otherMember.user, 'voice');
+                    } else if (chat.type === 'group') {
+                      onStartGroupCall?.(chat.id, chat.name || 'Group', 'voice');
+                    }
+                  }}
+                  className="p-2 rounded-lg hover:bg-surface-hover transition-colors text-zinc-400 hover:text-white hidden md:block"
+                >
+                  <Phone size={18} />
+                </button>
+                <button
+                  onClick={() => {
+                    if (chat.type === 'personal' && otherMember) {
+                      onStartCall?.(otherMember.user, 'video');
+                    } else if (chat.type === 'group') {
+                      onStartGroupCall?.(chat.id, chat.name || 'Group', 'video');
+                    }
+                  }}
+                  className="p-2 rounded-lg hover:bg-surface-hover transition-colors text-zinc-400 hover:text-white hidden md:block"
+                >
+                  <Video size={18} />
+                </button>
               </>
             )}
           </div>
 
           {/* Меню (вынесено за overflow-hidden контейнер) */}
           <div ref={topMenuRef} className="relative flex-shrink-0 ml-1">
-            <Tooltip text={t('menu') || 'Меню'}>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setShowTopMenu(v => !v);
-                }}
-                className="p-2 rounded-lg hover:bg-surface-hover transition-colors text-zinc-400 hover:text-white"
-              >
-                <MoreVertical size={18} />
-              </button>
-            </Tooltip>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setShowTopMenu(v => !v);
+                  }}
+                  className="p-2 rounded-lg hover:bg-surface-hover transition-colors text-zinc-400 hover:text-white"
+                >
+                  <MoreVertical size={18} />
+                </button>
             <AnimatePresence>
               {showTopMenu && (
                 <motion.div
@@ -1777,4 +1766,3 @@ const VirtualizedMessages = memo(function VirtualizedMessages({
     </div>
   );
 });
-

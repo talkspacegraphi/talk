@@ -7,6 +7,7 @@ import {
   Clock,
   Reply,
   X,
+  RotateCw,
 } from 'lucide-react';
 import { useAuthStore } from '../stores/authStore';
 import { useChatStore } from '../stores/chatStore';
@@ -45,6 +46,7 @@ function MessageBubble({
 }: MessageBubbleProps) {
   const { user } = useAuthStore();
   const setReplyTo = useChatStore((s) => s.setReplyTo);
+  const retryMessage = useChatStore((s) => s.retryMessage);
   const { t, lang } = useLang();
 
   const pinnedMessages = useChatStore(s => s.pinnedMessages[message.chatId]);
@@ -381,7 +383,15 @@ function MessageBubble({
                   {message.isEdited && <span>{t('edited')}</span>}
                   {message.scheduledAt && <Clock size={11} className="text-amber-400 mr-0.5" />}
                   {message.pending && !message.failed && <Clock size={11} className="opacity-60 animate-pulse" />}
-                  {message.failed && <Clock size={11} className="text-red-400" />}
+                  {message.failed && (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); if (message.clientId) retryMessage(message.clientId); }}
+                      className="text-red-400 hover:text-red-300 transition-colors p-0.5 -mr-0.5"
+                      title={t('retry')}
+                    >
+                      <RotateCw size={12} />
+                    </button>
+                  )}
                   {timeStr}
                   {isMine && !message.scheduledAt && !message.pending && !message.failed && (
                     isRead ? <CheckCheck size={13} className="text-sky-300 ml-0.5" /> : <Check size={13} className="ml-0.5" />

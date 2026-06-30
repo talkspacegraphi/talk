@@ -3,12 +3,12 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useChatStore } from '../stores/chatStore';
 import { useAuthStore } from '../stores/authStore';
 import { useThemeStore } from '../stores/themeStore';
-import { getSocket, disconnectSocket } from '../lib/socket';
+import { getSocket, disconnectSocket, onConnectionStatusChange, type ConnectionStatus } from '../lib/socket';
 import { api } from '../lib/api';
 import { playNotificationSound, isChatMuted } from '../lib/sounds';
 import { useLang } from '../lib/i18n';
 import type { Message, UserBasic, CallInfo } from '../lib/types';
-import { Send, Check } from 'lucide-react';
+import { Send, Check, Wifi, WifiOff, Loader2 } from 'lucide-react';
 import Sidebar from '../components/Sidebar';
 import ChatView from '../components/ChatView';
 import UserProfile from '../components/UserProfile';
@@ -77,12 +77,53 @@ export default function ChatPage() {
   const [profileUserId, setProfileUserId] = useState<string | null>(null);
 
   const { t } = useLang();
+  const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('disconnected');
+  const pendingRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Запрашиваем разрешение на уведомления при загрузке
   useEffect(() => {
     if ('Notification' in window && Notification.permission === 'default') {
       Notification.requestPermission();
     }
+  }, []);
+
+  // Слушаем статус соединения и повторяем pending-сообщения при реконнекте
+  useEffect(() => {
+    const unsub = onConnectionStatusChange((status) => {
+      setConnectionStatus(status);
+    });
+
+    const handleReconnected = () => {
+      // Retry pending messages after reconnection
+      if (pendingRetryTimerRef.current) clearTimeout(pendingRetryTimerRef.current);
+      pendingRetryTimerRef.current = setTimeout(() => {
+        const socket = getSocket();
+        if (!socket?.connected) return;
+        const { getPendingMessages, retryMessage } = useChatStore.getState();
+        const pending = getPendingMessages();
+        for (const msg of pending) {
+          if (msg.clientId) {
+            socket.emit('send_message', {
+              chatId: msg.chatId,
+              clientId: msg.clientId,
+              content: msg.content,
+              type: msg.type || 'text',
+              replyToId: msg.replyToId || null,
+              quote: msg.quote || null,
+            });
+          }
+        }
+      }, 500);
+    };
+
+    window.addEventListener('vortex:socket-reconnected', handleReconnected);
+    window.addEventListener('vortex:socket-connected', handleReconnected);
+    return () => {
+      unsub();
+      window.removeEventListener('vortex:socket-reconnected', handleReconnected);
+      window.removeEventListener('vortex:socket-connected', handleReconnected);
+      if (pendingRetryTimerRef.current) clearTimeout(pendingRetryTimerRef.current);
+    };
   }, []);
 
   // Сбрасываем счётчик непрочитанных когда вкладка становится активной
@@ -394,6 +435,33 @@ export default function ChatPage() {
       className="h-full flex flex-col md:flex-row bg-surface overflow-hidden relative"
       style={{ padding: 'env(safe-area-inset-top) 0 0 0', paddingLeft: 'max(env(safe-area-inset-left), 0px)', paddingRight: 'max(env(safe-area-inset-right), 0px)' }}
     >
+      {/* Network status banner */}
+      <AnimatePresence>
+        {connectionStatus === 'offline' && (
+          <motion.div
+            initial={{ y: -48, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            exit={{ y: -48, opacity: 0 }}
+            transition={{ type: 'spring', stiffness: 400, damping: 30 }}
+            className="fixed top-0 left-0 right-0 z-[9999] flex items-center justify-center gap-2 py-2.5 bg-zinc-800/95 backdrop-blur-md border-b border-zinc-700/50"
+          >
+            <WifiOff size={16} className="text-zinc-400" />
+            <span className="text-sm text-zinc-300 font-medium">{t('waitingForNetwork') || 'Ожидание сети'}</span>
+          </motion.div>
+        )}
+        {connectionStatus === 'reconnecting' && (
+          <motion.div
+            initial={{ y: -48, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            exit={{ y: -48, opacity: 0 }}
+            transition={{ type: 'spring', stiffness: 400, damping: 30 }}
+            className="fixed top-0 left-0 right-0 z-[9999] flex items-center justify-center gap-2 py-2.5 bg-zinc-800/95 backdrop-blur-md border-b border-zinc-700/50"
+          >
+            <Loader2 size={16} className="text-amber-400 animate-spin" />
+            <span className="text-sm text-zinc-300 font-medium">{t('updating') || 'Обновление'}</span>
+          </motion.div>
+        )}
+      </AnimatePresence>
       <div className="flex-1 flex relative w-full h-full overflow-hidden">
         <Sidebar />
         <ChatView onStartCall={handleStartCall} onStartGroupCall={handleStartGroupCall} profileUserId={profileUserId} onOpenProfile={(id) => setProfileUserId(id)} />

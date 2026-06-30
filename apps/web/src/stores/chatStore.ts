@@ -36,6 +36,10 @@ interface ChatState {
   confirmMessage: (clientId: string, realMessage: Message) => void;
   /** Помечает pending-сообщение как не доставленное */
   failOptimisticMessage: (clientId: string) => void;
+  /** Повторно отправляет pending-сообщение */
+  retryMessage: (clientId: string) => void;
+  /** Получить все pending-сообщения для повторной отправки */
+  getPendingMessages: () => Message[];
   updateMessage: (message: Message) => void;
   removeMessage: (messageId: string, chatId: string) => void;
   removeMessages: (messageIds: string[], chatId: string) => void;
@@ -340,6 +344,33 @@ export const useChatStore = create<ChatState>((set, get) => ({
       }
       return { messages: updatedMessages };
     });
+  },
+
+  /** Повторная отправка: ставим pending=true и убираем failed */
+  retryMessage: (clientId) => {
+    set((state) => {
+      const updatedMessages: Record<string, Message[]> = { ...state.messages };
+      for (const chatId of Object.keys(updatedMessages)) {
+        updatedMessages[chatId] = updatedMessages[chatId].map((m) =>
+          m.clientId === clientId ? { ...m, pending: true, failed: false } : m
+        );
+      }
+      return { messages: updatedMessages };
+    });
+  },
+
+  /** Все pending-сообщения для повторной отправки при реконнекте */
+  getPendingMessages: () => {
+    const state = get();
+    const pending: Message[] = [];
+    for (const chatId of Object.keys(state.messages)) {
+      for (const msg of state.messages[chatId]) {
+        if (msg.pending && msg.clientId) {
+          pending.push(msg);
+        }
+      }
+    }
+    return pending;
   },
 
   updateMessage: (message) => {
