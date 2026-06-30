@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback, RefObject } from 'react';
+import { createPortal } from 'react-dom';
 // framer-motion removed: caused React error #321 with React 19.
 // Using plain <div> with CSS animations (see .call-modal-* classes in index.css).
 import { Phone, PhoneOff, Video, VideoOff, Mic, MicOff, Monitor, MonitorOff, Maximize, Minimize, SwitchCamera, Minimize2, Maximize2, Volume2, ShieldCheck, ShieldOff, ChevronUp, X, Minus } from 'lucide-react';
@@ -1861,15 +1862,15 @@ setCallState('connected');
     localStreamRef.current?.getVideoTracks().some(t => t.enabled) || isScreenSharing
   );
 
-  return (
-    <div className="call-modal-fade-in relative z-[200]">
+  return createPortal(
+    <div className="call-modal-fade-in">
       <audio key="remote-audio" ref={remoteAudioRef} autoPlay playsInline />
 
       {/* === MOBILE CALL UI === */}
       {isMobile && !isMinimized && (callState === 'calling' || callState === 'connected' || callState === 'incoming' || showNoAnswerScreen) && (
         <div
           key="mobile-call"
-          className="call-modal-fade-in fixed inset-0 z-[100] flex flex-col overflow-hidden"
+          className="call-modal-fade-in fixed inset-0 z-[200] flex flex-col overflow-hidden"
           style={{ background: 'linear-gradient(180deg, #0a0a0f 0%, #111118 40%, #111118 60%, #0a0a0f 100%)' }}
         >
           {/* Постоянные видеоэлементы — всегда в DOM, ref никогда не меняется */}
@@ -2158,7 +2159,7 @@ setCallState('connected');
         role="dialog"
         aria-modal="true"
         aria-label="Call"
-        className="call-modal-fade-in fixed inset-0 z-[100] flex items-center justify-center bg-surface/90 backdrop-blur-xl overflow-hidden"
+        className="call-modal-fade-in fixed inset-0 z-[200] flex items-center justify-center bg-surface/90 backdrop-blur-xl overflow-hidden"
         onClick={() => { setShowCameraMenu(false); setShowVolumeSlider(false); setShowMicMenu(false); }}
       >
         {/* Ambient background glow — static gradient instead of animated blur.
@@ -2541,6 +2542,7 @@ setCallState('connected');
         onClose={() => setShowScreenSourcePicker(false)}
         onSelect={handleScreenSourceSelect}
       />
-    </div>
+    </div>,
+    document.body
   );
 }
