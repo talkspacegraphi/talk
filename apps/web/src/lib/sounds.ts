@@ -104,6 +104,38 @@ export function stopCallRingtone() {
   }
 }
 
+// Dial tone (beep while calling)
+let dialToneCtx: AudioContext | null = null;
+let dialToneOsc: OscillatorNode | null = null;
+let dialToneGain: GainNode | null = null;
+
+export function startDialTone() {
+  try {
+    if (dialToneCtx) return;
+    dialToneCtx = new AudioContext();
+    dialToneOsc = dialToneCtx.createOscillator();
+    dialToneGain = dialToneCtx.createGain();
+    dialToneOsc.type = 'sine';
+    dialToneOsc.frequency.value = 440;
+    dialToneGain.gain.value = 0.15;
+    dialToneOsc.connect(dialToneGain);
+    dialToneGain.connect(dialToneCtx.destination);
+    dialToneOsc.start();
+  } catch (e) {
+    // silent fail
+  }
+}
+
+export function stopDialTone() {
+  try {
+    if (dialToneOsc) { dialToneOsc.stop(); dialToneOsc = null; }
+    if (dialToneCtx) { dialToneCtx.close(); dialToneCtx = null; }
+    dialToneGain = null;
+  } catch (e) {
+    // silent fail
+  }
+}
+
 // "Абонент недоступен" sound
 export function playUnavailableSound(): Promise<void> {
   return new Promise((resolve) => {

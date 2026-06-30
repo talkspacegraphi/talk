@@ -23,7 +23,7 @@ export default function GifPicker({ onSelect, onClose }: GifPickerProps) {
   const [gifs, setGifs] = useState<KlippyGif[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const searchTimeoutRef = useRef<NodeJS.Timeout | undefined>(undefined);
+  const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   useEffect(() => {
     // Загружаем trending гифки при открытии

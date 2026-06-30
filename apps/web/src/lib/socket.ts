@@ -81,6 +81,22 @@ export function connectSocket(token: string): Socket {
     if (import.meta.env.DEV) console.warn('[Socket] connection error:', err.message);
   });
 
+  // Reconnect when app returns from background (Android WebView)
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && socket && !socket.connected) {
+      if (import.meta.env.DEV) console.log('[Socket] page visible — reconnecting...');
+      socket.connect();
+    }
+  });
+
+  // Also handle Android native events
+  window.addEventListener('vortex:app-resumed', () => {
+    if (socket && !socket.connected) {
+      if (import.meta.env.DEV) console.log('[Socket] app resumed — reconnecting...');
+      socket.connect();
+    }
+  });
+
   return socket;
 }
 

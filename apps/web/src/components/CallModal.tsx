@@ -1,11 +1,11 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, MutableRefObject } from 'react';
 // framer-motion removed: caused React error #321 with React 19.
 // Using plain <div> with CSS animations (see .call-modal-* classes in index.css).
 import { Phone, PhoneOff, Video, VideoOff, Mic, MicOff, Monitor, MonitorOff, Maximize, Minimize, SwitchCamera, Minimize2, Maximize2, Volume2, ShieldCheck, ShieldOff, ChevronUp, X, Minus } from 'lucide-react';
 import { getSocket } from '../lib/socket';
 import { api } from '../lib/api';
 import { useLang } from '../lib/i18n';
-import { playCallRingtone, stopCallRingtone, playUnavailableSound } from '../lib/sounds';
+import { playCallRingtone, stopCallRingtone, playUnavailableSound, startDialTone, stopDialTone } from '../lib/sounds';
 import ScreenSourcePicker from './ScreenSourcePicker';
 import { isAndroidWebView, nativeCallLog } from '../lib/utils';
 
@@ -715,6 +715,7 @@ const endCallSafe = useCallback(() => {
         callEndedRef.current = true;
         stopCallRingtone();
         stopDialTone();
+        const s = getSocket();
         s?.emit('call_end', { targetUserId: targetUserIdRef.current });
         cleanup();
         if (isMobile) {
@@ -1048,7 +1049,7 @@ setCallState('connected');
   const toggleNoiseSuppression = useCallback(async () => {
     // На Android WebView noise gate недоступен — показываем сообщение
     if (isAndroidWebView()) {
-      alert(t('noiseSuppressionUnavailable') || 'Шумоподавление недоступно на этом устройстве');
+      alert(t('noiseSuppressionUnavailable'));
       return;
     }
     if (noiseSuppression) {

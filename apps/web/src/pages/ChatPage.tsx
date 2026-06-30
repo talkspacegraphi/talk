@@ -339,6 +339,26 @@ export default function ChatPage() {
         socket.emit('call_decline', { targetUserId: data.from });
         return;
       }
+
+      // Show browser notification when app is in background
+      if (document.hidden && 'Notification' in window && Notification.permission === 'granted') {
+        const callerName = data.callerInfo?.displayName || data.callerInfo?.username || 'Неизвестный';
+        const typeLabel = data.callType === 'video' ? 'Видеозвонок' : 'Звонок';
+        try {
+          const notif = new Notification(typeLabel, {
+            body: `${callerName} звонит вам`,
+            icon: data.callerInfo?.avatar || '/logo.png',
+            tag: `call-${data.from}`,
+            requireInteraction: true,
+          } as NotificationOptions);
+          notif.onclick = () => {
+            window.focus();
+            notif.close();
+          };
+        } catch (_) {
+          // silent fail — some mobile browsers don't support Notification
+        }
+      }
       // Use callerInfo from server if available, otherwise look up from chats
       let callerInfo: UserBasic | null = data.callerInfo || null;
       if (!callerInfo) {

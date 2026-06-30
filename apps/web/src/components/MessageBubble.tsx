@@ -61,7 +61,7 @@ function MessageBubble({
   const audioRef67 = useRef<HTMLAudioElement>(null);
   const bubbleRef = useRef<HTMLDivElement>(null);
   const bubbleContentRef = useRef<HTMLDivElement>(null);
-  const [longPressTimer, setLongPressTimer] = useState<NodeJS.Timeout | null>(null);
+  const [longPressTimer, setLongPressTimer] = useState<ReturnType<typeof setTimeout> | null>(null);
   const [touchStartPos, setTouchStartPos] = useState<{ x: number; y: number } | null>(null);
 
   const is67Message = message.content?.trim() === '67' && !message.media?.length;
