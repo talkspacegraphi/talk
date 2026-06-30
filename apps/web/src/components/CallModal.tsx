@@ -1862,7 +1862,7 @@ setCallState('connected');
   );
 
   return (
-    <div className="call-modal-fade-in">
+    <div className="call-modal-fade-in relative z-[200]">
       <audio key="remote-audio" ref={remoteAudioRef} autoPlay playsInline />
 
       {/* === MOBILE CALL UI === */}
