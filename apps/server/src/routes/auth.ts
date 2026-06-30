@@ -29,7 +29,7 @@ const REGISTRATION_COOLDOWN_MS = 10 * 1000; // 10 seconds for dev (was 5 minutes
 setInterval(() => {
   const now = Date.now();
   for (const [ip, timestamp] of registrationCooldowns) {
-    if (now - timestamp > REGISTRATION_COOLDOWN_MS) {
+    if (now - timestamp > REGISTRATION_COOLDOWN_MS * 10) {
       registrationCooldowns.delete(ip);
     }
   }
@@ -38,7 +38,7 @@ setInterval(() => {
 // ─── Token helpers ────────────────────────────────────────────────────
 
 function generateAccessToken(userId: string): string {
-  return jwt.sign({ userId }, config.jwtSecret, { expiresIn: '15m' as any });
+  return jwt.sign({ userId }, config.jwtSecret, { expiresIn: '2h' as any });
 }
 
 function generateRefreshToken(): string {

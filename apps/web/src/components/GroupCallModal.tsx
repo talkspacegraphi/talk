@@ -776,10 +776,14 @@ export default function GroupCallModal({ isOpen, onClose, chatId, chatName, call
           className="call-modal-fade-in fixed inset-0 z-[100] flex items-center justify-center bg-surface/90 backdrop-blur-xl overflow-hidden"
           onClick={() => setShowVolumeSlider(false)}
         >
-          <div className="absolute inset-0 pointer-events-none opacity-40">
-            <div className="absolute top-[10%] left-[20%] w-[50vh] h-[50vh] bg-emerald-500/30 rounded-full blur-[120px] animate-float" />
-            <div className="absolute bottom-[10%] right-[20%] w-[50vh] h-[50vh] bg-vortex-500/20 rounded-full blur-[120px] animate-float-delayed" />
-          </div>
+          {/* Ambient background — static gradient instead of animated blur (see CallModal for rationale) */}
+          <div
+            className="absolute inset-0 pointer-events-none opacity-30"
+            style={{
+              background:
+                'radial-gradient(circle at 20% 20%, rgba(16,185,129,0.22), transparent 45%), radial-gradient(circle at 80% 80%, rgba(139,92,246,0.18), transparent 45%)',
+            }}
+          />
 
           <div
             className="call-modal-pop-in relative w-full max-w-5xl mx-4 rounded-[2.5rem] glass-strong shadow-2xl shadow-black/50 overflow-hidden border border-white/5"

@@ -24,6 +24,7 @@ import {
   Image,
 } from 'lucide-react';
 import { useChatStore } from '../stores/chatStore';
+import { useShallow } from 'zustand/shallow';
 import { useAuthStore } from '../stores/authStore';
 import { api } from '../lib/api';
 import { getSocket } from '../lib/socket';
@@ -42,25 +43,29 @@ import ConfirmModal from './ConfirmModal';
 import Avatar from './Avatar';
 import { useThemeStore } from '../stores/themeStore';
 
+const EMPTY_MESSAGES: Message[] = [];
+
+
 export default function ChatView({ onStartCall, onStartGroupCall, profileUserId, onOpenProfile }: { onStartCall?: (targetUser: UserBasic, type: 'voice' | 'video') => void; onStartGroupCall?: (chatId: string, chatName: string, type: 'voice' | 'video') => void; profileUserId?: string | null; onOpenProfile?: (userId: string) => void }) {
   const { user } = useAuthStore();
   const { t, lang } = useLang();
   const { chatTheme, setChatBackground, getChatBackground } = useThemeStore();
-  const {
-    activeChat,
-    chats,
-    messages,
-    typingUsers,
-    pinnedMessages,
-    isLoadingMessages,
-    isLoadingMore,
-    hasMore,
-    setActiveChat,
-    setReplyTo,
-    loadMoreMessages,
-    saveScrollPosition,
-    scrollPositions,
-  } = useChatStore();
+  const activeChat = useChatStore((s) => s.activeChat);
+  const chat = useChatStore((s) => s.chats.find((c) => c.id === s.activeChat));
+  const chats = useChatStore((s) => s.chats); // still needed for the otherMember lookup effect below
+  const chatMessages = useChatStore((s) => (s.activeChat ? s.messages[s.activeChat] || EMPTY_MESSAGES : EMPTY_MESSAGES));
+  const pinnedMsg = useChatStore((s) => (s.activeChat ? s.pinnedMessages[s.activeChat] : null) ?? null);
+  const typingInChat = useChatStore(
+    useShallow((s) => s.typingUsers.filter((t) => t.chatId === s.activeChat && t.userId !== user?.id))
+  );
+  const isLoadingMessages = useChatStore((s) => s.isLoadingMessages);
+  const isLoadingMore = useChatStore((s) => s.isLoadingMore);
+  const hasMoreForChat = useChatStore((s) => (s.activeChat ? s.hasMore[s.activeChat] || false : false));
+  const setActiveChat = useChatStore((s) => s.setActiveChat);
+  const setReplyTo = useChatStore((s) => s.setReplyTo);
+  const loadMoreMessages = useChatStore((s) => s.loadMoreMessages);
+  const saveScrollPosition = useChatStore((s) => s.saveScrollPosition);
+  const savedScrollPosition = useChatStore((s) => (activeChat ? s.scrollPositions[activeChat] : undefined));
 
   const [showTopMenu, setShowTopMenu] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
@@ -152,9 +157,7 @@ export default function ChatView({ onStartCall, onStartGroupCall, profileUserId,
     setTouchEnd(null);
   };
 
-  const chat = chats.find((c) => c.id === activeChat);
-  const chatMessages = activeChat ? messages[activeChat] || [] : [];
-  const pinnedMsg = activeChat ? pinnedMessages[activeChat] : null;
+  // chat, chatMessages, pinnedMsg now come from selectors above
 
   // Количество непрочитанных сообщений (для бейджика)
   const unreadCount = chatMessages.filter(
@@ -175,7 +178,7 @@ export default function ChatView({ onStartCall, onStartGroupCall, profileUserId,
       : chat?.avatar;
   const isOnline = chat?.type === 'personal' && otherMember?.user.isOnline;
 
-  const typingInChat = typingUsers.filter((t) => t.chatId === activeChat && t.userId !== user?.id);
+  // typingInChat now comes from selector above
 
   // Load muted state
   useEffect(() => {
@@ -324,7 +327,7 @@ export default function ChatView({ onStartCall, onStartGroupCall, profileUserId,
       const container = messagesContainerRef.current;
       if (container) {
         const scrollEl = container.querySelector('[data-scroll-area]') || container;
-        const savedPos = scrollPositions[activeChat];
+        const savedPos = savedScrollPosition;
         if (savedPos !== undefined && savedPos > 0) {
           scrollEl.scrollTop = savedPos;
         } else {
@@ -502,11 +505,19 @@ export default function ChatView({ onStartCall, onStartGroupCall, profileUserId,
         className={`flex-1 min-w-0 flex items-center justify-center bg-surface-secondary/50 rounded-none md:rounded-[2rem] overflow-hidden border-0 md:border md:border-white/5 shadow-none md:shadow-2xl relative backdrop-blur-3xl group ${isMobile ? 'absolute inset-0' : 'relative'} z-10`}
         style={isMobile ? { pointerEvents: 'none' } : undefined}
       >
-        {/* Slowly pulsing purple background as requested */}
-        <div className="absolute inset-0 pointer-events-none overflow-hidden transition-opacity duration-[10000ms]">
-          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[60vw] h-[60vw] max-w-[800px] max-h-[800px] bg-vortex-600/10 rounded-full blur-[120px] animate-[pulse_8s_ease-in-out_infinite]" />
-          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[40vw] h-[40vw] max-w-[500px] max-h-[500px] bg-purple-600/15 rounded-full blur-[100px] animate-[pulse_12s_ease-in-out_infinite_reverse]" />
-        </div>
+        {/* Slowly pulsing purple background — desktop only. On mobile this screen
+            is shifted off-screen (opacity 0) but was still animating blur+pulse
+            in the background, burning GPU/battery for nothing. Also swapped the
+            animated blur() for a static gradient — much cheaper to render. */}
+        {!isMobile && (
+          <div
+            className="absolute inset-0 pointer-events-none overflow-hidden"
+            style={{
+              background:
+                'radial-gradient(circle at 50% 50%, rgba(124,58,237,0.10), transparent 55%), radial-gradient(circle at 50% 50%, rgba(168,85,247,0.10), transparent 40%)',
+            }}
+          />
+        )}
 
         <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjAiIGhlaWdodD0iMjAiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PGNpcmNsZSBjeD0iMSIgY3k9IjEiIHI9IjEiIGZpbGw9InJnYmEoMjU1LDI1NSwyNTUsMC4wMSkvPjwvc3ZnPg==')] [mask-image:radial-gradient(ellipse_at_center,black_40%,transparent_100%)] opacity-20 pointer-events-none" />
 
@@ -1248,7 +1259,7 @@ export default function ChatView({ onStartCall, onStartGroupCall, profileUserId,
             scrollContainerRef={messagesContainerRef}
             chatId={activeChat}
             isLoadingMore={isLoadingMore}
-            hasMore={hasMore[activeChat || ''] || false}
+            hasMore={hasMoreForChat}
             onLoadMore={handleLoadMore}
             onScrollStateChange={handleMessagesScroll}
             onSaveScrollPosition={(pos) => { if (activeChat) saveScrollPosition(activeChat, pos); }}

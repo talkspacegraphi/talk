@@ -44,7 +44,7 @@ function MessageBubble({
   onStartSelectionMode
 }: MessageBubbleProps) {
   const { user } = useAuthStore();
-  const { setReplyTo } = useChatStore();
+  const setReplyTo = useChatStore((s) => s.setReplyTo);
   const { t, lang } = useLang();
 
   const pinnedMessages = useChatStore(s => s.pinnedMessages[message.chatId]);
@@ -164,11 +164,17 @@ function MessageBubble({
     if (!selectionMode && !message.isDeleted) setReplyTo(message);
   };
 
-  // Touch handlers
+  // Touch handlers — long-press (context menu) and swipe-to-reply share the
+  // same gesture so they can't both fire. swipeX still drives the existing
+  // reply-indicator UI below; only the engine moving it changed.
+  const swipeActiveRef = useRef(false);
+  const swipeXRef = useRef(0);
   const handleTouchStart = (e: React.TouchEvent) => {
     if (selectionMode || message.isDeleted) return;
     const touch = e.touches[0];
     setTouchStartPos({ x: touch.clientX, y: touch.clientY });
+    swipeActiveRef.current = false;
+    swipeXRef.current = 0;
     const timer = setTimeout(() => {
       onStartSelectionMode?.(message.id);
       setLongPressTimer(null);
@@ -176,14 +182,34 @@ function MessageBubble({
     setLongPressTimer(timer);
   };
   const handleTouchMove = (e: React.TouchEvent) => {
-    if (!touchStartPos || !longPressTimer) return;
+    if (!touchStartPos) return;
     const touch = e.touches[0];
-    const deltaX = Math.abs(touch.clientX - touchStartPos.x);
-    const deltaY = Math.abs(touch.clientY - touchStartPos.y);
-    if (deltaX > 10 || deltaY > 10) { clearTimeout(longPressTimer); setLongPressTimer(null); }
+    const deltaX = touch.clientX - touchStartPos.x;
+    const deltaY = touch.clientY - touchStartPos.y;
+    // Once horizontal movement dominates, treat this as a swipe-to-reply
+    // gesture instead of a long-press, and cancel the long-press timer.
+    if (!swipeActiveRef.current && Math.abs(deltaX) > 10 && Math.abs(deltaX) > Math.abs(deltaY)) {
+      swipeActiveRef.current = true;
+      setIsSwiping(true);
+      if (longPressTimer) { clearTimeout(longPressTimer); setLongPressTimer(null); }
+    } else if (!swipeActiveRef.current && (Math.abs(deltaX) > 10 || Math.abs(deltaY) > 10)) {
+      // Movement dominated by vertical scroll — cancel long-press, don't swipe
+      if (longPressTimer) { clearTimeout(longPressTimer); setLongPressTimer(null); }
+      return;
+    }
+    if (swipeActiveRef.current && deltaX < 0) {
+      const clamped = Math.max(deltaX, -80);
+      swipeXRef.current = clamped;
+      setSwipeX(clamped);
+    }
   };
   const handleTouchEnd = () => {
     if (longPressTimer) { clearTimeout(longPressTimer); setLongPressTimer(null); }
+    if (swipeActiveRef.current) {
+      if (swipeXRef.current < -60) handleSwipe();
+      swipeActiveRef.current = false;
+      setIsSwiping(false);
+    }
     setTouchStartPos(null);
   };
 
@@ -229,25 +255,21 @@ function MessageBubble({
 
   return (
     <>
-      <motion.div
+      <div
         ref={bubbleRef}
-        className={`flex ${isMine ? 'justify-end' : 'justify-start'} group mb-0.5 relative transition-colors duration-200 ${selectionMode ? 'pl-10 pr-4 cursor-pointer hover:bg-white/5 rounded-xl' : ''
+        className={`flex ${isMine ? 'justify-end' : 'justify-start'} group mb-0.5 relative message-bubble-enter ${selectionMode ? 'pl-10 pr-4 cursor-pointer hover:bg-white/5 rounded-xl' : ''
           } ${isSelected ? 'bg-vortex-500/10 hover:bg-vortex-500/20' : ''} ${message.pending && !message.failed ? 'opacity-80' : ''} ${message.failed ? 'opacity-60 ring-1 ring-red-500/40 rounded-2xl' : ''}`}
         onClick={handleMobileClick}
         onContextMenu={handleContextMenu}
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
-        drag={!selectionMode && !message.isDeleted && isMobile ? "x" : false}
-        dragConstraints={{ left: -80, right: 0 }}
-        dragElastic={0.2}
-        dragMomentum={false}
-        onDragStart={() => setIsSwiping(true)}
-        onDrag={(_, info) => { if (info.offset.x < 0) setSwipeX(Math.max(info.offset.x, -80)); }}
-        onDragEnd={(_, info) => { if (info.offset.x < -60) handleSwipe(); setIsSwiping(false); }}
-        initial={{ opacity: 0, y: 6, scale: 0.95 }}
-        animate={{ opacity: 1, y: 0, scale: 1, x: 0 }}
-        transition={{ type: "spring", stiffness: 420, damping: 32, mass: 0.6 }}
+        style={{
+          transform: swipeX < 0 ? `translateX(${swipeX}px)` : undefined,
+          transition: isSwiping ? 'background-color 0.2s' : 'transform 0.25s ease-out, background-color 0.2s',
+          willChange: isSwiping ? 'transform' : undefined,
+        }}
+
         {...(isSwiping ? { 'data-swiping': 'true' } : {})}
       >
         {/* Selection Checkbox */}
@@ -452,7 +474,7 @@ function MessageBubble({
             </motion.div>
           )}
         </AnimatePresence>
-      </motion.div>
+      </div>
 
       {/* Context Menu */}
       <MessageContextMenu
@@ -498,7 +520,7 @@ function MessageBubble({
                 <motion.div initial={{ opacity: 0, scale: 0.5 }} animate={{ opacity: 0.7, scale: 1 }} transition={{ duration: 1, delay: 0.3 }} className="absolute inset-0 rounded-3xl overflow-hidden z-[1]">
                   <img src="/67.gif" alt="" className="w-full h-full object-cover mix-blend-screen" />
                 </motion.div>
-                <motion.div initial={{ opacity: 0 }} animate={{ opacity: [0, 1, 0] }} transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }} className="absolute inset-0 bg-gradient-to-r from-purple-500/30 via-pink-500/30 to-purple-500/30 rounded-3xl blur-3xl z-[2]" />
+                <div className="absolute inset-0 bg-gradient-to-r from-purple-500/30 via-pink-500/30 to-purple-500/30 rounded-3xl blur-3xl z-[2] css-pulse-glow" />
               </motion.div>
             </motion.div>
           )}

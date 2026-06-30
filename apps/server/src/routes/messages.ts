@@ -61,7 +61,18 @@ router.get('/chat/:chatId', async (req: AuthRequest, res) => {
     }
 
     const createdAtFilter: Record<string, Date> = {};
-    if (cursor) createdAtFilter.lt = new Date(cursor as string);
+    let cursorId: string | undefined;
+
+    if (cursor) {
+      const cursorStr = cursor as string;
+      // Если cursor — дата (старый формат), используем как раньше
+      if (cursorStr.includes('T') || cursorStr.includes('-')) {
+        createdAtFilter.lt = new Date(cursorStr);
+      } else {
+        // Новый формат — ID сообщения (нет дублей при одинаковом createdAt)
+        cursorId = cursorStr;
+      }
+    }
     if (member.clearedAt) createdAtFilter.gt = member.clearedAt;
 
     // Get hidden message IDs for this user in this chat (single query, cached)
@@ -71,11 +82,25 @@ router.get('/chat/:chatId', async (req: AuthRequest, res) => {
     });
     const hiddenSet = new Set(hiddenIds.map(h => h.messageId));
 
+    // Если cursor по ID — находим дату этого сообщения
+    if (cursorId) {
+      const cursorMsg = await prisma.message.findUnique({
+        where: { id: cursorId },
+        select: { createdAt: true },
+      });
+      if (cursorMsg) createdAtFilter.lt = cursorMsg.createdAt;
+    }
+
     const messages = await prisma.message.findMany({
       where: {
         chatId,
         isDeleted: false,
-        id: { notIn: hiddenSet.size > 0 ? Array.from(hiddenSet) : undefined },
+        id: {
+          notIn: [
+            ...(hiddenSet.size > 0 ? Array.from(hiddenSet) : []),
+            ...(cursorId ? [cursorId] : []),
+          ].filter(Boolean) as string[] || undefined,
+        },
         OR: [
           { scheduledAt: null },
           { senderId: req.userId! },
@@ -83,7 +108,7 @@ router.get('/chat/:chatId', async (req: AuthRequest, res) => {
         ...(Object.keys(createdAtFilter).length > 0 ? { createdAt: createdAtFilter } : {}),
       },
       include: MESSAGE_INCLUDE,
-      orderBy: { createdAt: 'desc' },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       take,
     });
 

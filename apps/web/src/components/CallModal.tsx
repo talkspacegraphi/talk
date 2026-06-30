@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+// framer-motion removed: caused React error #321 with React 19.
+// Using plain <div> with CSS animations (see .call-modal-* classes in index.css).
 import { Phone, PhoneOff, Video, VideoOff, Mic, MicOff, Monitor, MonitorOff, Maximize, Minimize, SwitchCamera, Minimize2, Maximize2, Volume2, ShieldCheck, ShieldOff, ChevronUp, X, Minus } from 'lucide-react';
 import { getSocket } from '../lib/socket';
 import { api } from '../lib/api';
@@ -98,9 +99,16 @@ async function releaseMicrophoneForAndroid(): Promise<void> {
     await new Promise(r => setTimeout(r, 1500));
   }
 }
+interface MediaRefs {
+  localStreamRef: MutableRefObject<MediaStream | null>;
+  noiseGateTrackRef: MutableRefObject<MediaStreamTrack | null>;
+  noiseGateCtxRef: MutableRefObject<AudioContext | null>;
+}
+
 async function getMediaWithCameraFallback(
   wantVideo: boolean,
-  preferDeviceId?: string
+  preferDeviceId?: string,
+  refs?: MediaRefs
 ): Promise<{ stream: MediaStream; hasVideo: boolean }> {
   if (!navigator.mediaDevices?.getUserMedia) {
     throw new Error('navigator.mediaDevices is not available. Calls require HTTPS or localhost.');
@@ -109,17 +117,17 @@ async function getMediaWithCameraFallback(
   // Kill ALL active media tracks to free the microphone
   const killAllTracks = async () => {
     // Stop local call streams
-    if (localStreamRef.current) {
-      localStreamRef.current.getTracks().forEach(t => { t.stop(); t.enabled = false; });
-      nativeCallLog(`Killed localStream: ${localStreamRef.current.getTracks().length} tracks`);
+    if (refs?.localStreamRef.current) {
+      refs.localStreamRef.current.getTracks().forEach(t => { t.stop(); t.enabled = false; });
+      nativeCallLog(`Killed localStream: ${refs.localStreamRef.current.getTracks().length} tracks`);
     }
     // Stop noise gate tracks
-    if (noiseGateTrackRef.current) {
-      noiseGateTrackRef.current.stop();
+    if (refs?.noiseGateTrackRef.current) {
+      refs.noiseGateTrackRef.current.stop();
       nativeCallLog('Killed noiseGate track');
     }
-    if (noiseGateCtxRef.current) {
-      noiseGateCtxRef.current.close().catch(() => {});
+    if (refs?.noiseGateCtxRef.current) {
+      refs.noiseGateCtxRef.current.close().catch(() => {});
     }
     // Force release by re-acquiring and immediately stopping
     try {
@@ -494,6 +502,8 @@ const toggleEarpiece = useCallback(async () => {
       }
     };
 
+    // Apply bitrate limits once connected to reduce latency - handled in main onconnectionstatechange below
+
     pc.ontrack = (e) => {
       console.log('[ontrack] Received track:', e.track.kind, 'readyState:', e.track.readyState,
         'enabled:', e.track.enabled, 'streams:', e.streams.length,
@@ -565,16 +575,35 @@ const toggleEarpiece = useCallback(async () => {
       setTimeout(checkVideo, 1500);
     };
 
-    pc.onconnectionstatechange = () => {
+    pc.onconnectionstatechange = async () => {
       if (callEndedRef.current) return;
       const state = pc.connectionState;
       nativeCallLog(`PC state: ${state}`);
-      if (state === 'failed') {
+      if (state === 'connected') {
+        // Clear any pending disconnect timeout — connection recovered
+        if (disconnectTimeoutRef.current) {
+          clearTimeout(disconnectTimeoutRef.current);
+          disconnectTimeoutRef.current = null;
+        }
+        // Apply bitrate limits to reduce latency
+        for (const sender of pc.getSenders()) {
+          try {
+            const params = sender.getParameters();
+            if (!params.encodings || params.encodings.length === 0) params.encodings = [{}];
+            if (sender.track?.kind === 'audio') {
+              params.encodings[0].maxBitrate = 64_000;
+            } else if (sender.track?.kind === 'video') {
+              params.encodings[0].maxBitrate = 500_000;
+              params.encodings[0].maxFramerate = 24;
+            }
+            await sender.setParameters(params);
+          } catch { /* браузер может не поддерживать */ }
+        }
+      } else if (state === 'failed') {
         // eslint-disable-next-line @typescript-eslint/no-use-before-define
         endCallSafe();
       } else if (state === 'disconnected') {
         // 'disconnected' is transient — give it time to recover before ending
-        // Android WebView needs more time due to network layer instability
         const gracePeriod = isAndroidWebView() ? 12000 : 5000;
         if (!disconnectTimeoutRef.current) {
           disconnectTimeoutRef.current = setTimeout(() => {
@@ -583,12 +612,6 @@ const toggleEarpiece = useCallback(async () => {
               endCallSafe();
             }
           }, gracePeriod);
-        }
-      } else if (state === 'connected') {
-        // Clear any pending disconnect timeout — connection recovered
-        if (disconnectTimeoutRef.current) {
-          clearTimeout(disconnectTimeoutRef.current);
-          disconnectTimeoutRef.current = null;
         }
       }
     };
@@ -630,6 +653,9 @@ const endCallSafe = useCallback(() => {
     try {
       console.log('[startCall] Getting media, wantVideo:', callType === 'video');
       nativeCallLog('startCall: requesting getUserMedia...');
+      // Запускаем гудки сразу при начале вызова
+      playCallRingtone();
+      startDialTone();
       const { stream, hasVideo } = await getMediaWithCameraFallback(callType === 'video');
       nativeCallLog(`startCall: getUserMedia OK audio=${stream.getAudioTracks().length} video=${stream.getVideoTracks().length} hasVideo=${hasVideo}`);
       console.log('[startCall] Got media — hasVideo:', hasVideo,
@@ -688,7 +714,7 @@ const endCallSafe = useCallback(() => {
         if (callEndedRef.current) return;
         callEndedRef.current = true;
         stopCallRingtone();
-        const s = getSocket();
+        stopDialTone();
         s?.emit('call_end', { targetUserId: targetUserIdRef.current });
         cleanup();
         if (isMobile) {
@@ -730,7 +756,7 @@ const endCallSafe = useCallback(() => {
     try {
       console.log('[acceptCall] Getting media, wantVideo:', incoming.callType === 'video');
       nativeCallLog('acceptCall: requesting getUserMedia...');
-      const { stream, hasVideo } = await getMediaWithCameraFallback(incoming.callType === 'video');
+      const { stream, hasVideo } = await getMediaWithCameraFallback(incoming.callType === 'video', undefined, { localStreamRef, noiseGateTrackRef, noiseGateCtxRef });
       nativeCallLog(`acceptCall: getUserMedia OK audio=${stream.getAudioTracks().length} video=${stream.getVideoTracks().length}`);
       console.log('[acceptCall] Got media — hasVideo:', hasVideo,
         'audioTracks:', stream.getAudioTracks().length,
@@ -770,6 +796,13 @@ const endCallSafe = useCallback(() => {
       await pc.setRemoteDescription(new RTCSessionDescription(incoming.offer));
       nativeCallLog('acceptCall: setRemoteDescription OK');
 
+      // Flush buffered ICE candidates immediately after setRemoteDescription
+      // (they may have arrived before we were ready)
+      for (const candidate of iceCandidateBufferRef.current) {
+        pc.addIceCandidate(new RTCIceCandidate(candidate)).catch(console.error);
+      }
+      iceCandidateBufferRef.current = [];
+
       // Now add local tracks — they reuse the transceivers created from the offer,
       // changing direction from recvonly to sendrecv
       stream.getTracks().forEach(track => {
@@ -807,12 +840,6 @@ const endCallSafe = useCallback(() => {
         localStreamRef.current = null;
         return;
       }
-
-      // Flush buffered ICE candidates
-      for (const candidate of iceCandidateBufferRef.current) {
-        pc.addIceCandidate(new RTCIceCandidate(candidate)).catch(console.error);
-      }
-      iceCandidateBufferRef.current = [];
 
       nativeCallLog('acceptCall: createAnswer...');
       const answer = await pc.createAnswer();
@@ -1019,6 +1046,11 @@ setCallState('connected');
   }, []);
 
   const toggleNoiseSuppression = useCallback(async () => {
+    // На Android WebView noise gate недоступен — показываем сообщение
+    if (isAndroidWebView()) {
+      alert(t('noiseSuppressionUnavailable') || 'Шумоподавление недоступно на этом устройстве');
+      return;
+    }
     if (noiseSuppression) {
       await removeNoiseGate();
     } else {
@@ -1282,7 +1314,7 @@ setCallState('connected');
         setIsVideoOff(false);
       } else {
         try {
-          const { stream: camStream, hasVideo } = await getMediaWithCameraFallback(true);
+          const { stream: camStream, hasVideo } = await getMediaWithCameraFallback(true, undefined, { localStreamRef, noiseGateTrackRef, noiseGateCtxRef });
           if (!hasVideo) {
             console.warn('No camera available');
             return;
@@ -1633,6 +1665,18 @@ setCallState('connected');
     const onCallAnswered = async (data: { from: string; answer: RTCSessionDescriptionInit }) => {
       if (!peerRef.current || data.from !== targetUserIdRef.current) return;
       nativeCallLog(`call_answered from=${data.from}`);
+
+      // Защита от двойного вызова — если уже в состоянии stable, ответ уже применён
+      if (peerRef.current.signalingState === 'stable') {
+        nativeCallLog('call_answered: already stable, ignoring duplicate answer');
+        return;
+      }
+      // Ответ можно применять только в состоянии have-local-offer
+      if (peerRef.current.signalingState !== 'have-local-offer') {
+        nativeCallLog(`call_answered: wrong signalingState=${peerRef.current.signalingState}, ignoring`);
+        return;
+      }
+
       if (callTimeoutRef.current) clearTimeout(callTimeoutRef.current);
       stopCallRingtone();
       console.log('[onCallAnswered] Setting remote description (answer)');
@@ -1823,12 +1867,14 @@ setCallState('connected');
           className="fixed inset-0 z-[100] flex flex-col overflow-hidden"
           style={{ background: 'linear-gradient(180deg, #0a0a0f 0%, #111118 40%, #111118 60%, #0a0a0f 100%)' }}
         >
-          {/* Hidden video elements */}
+          {/* Постоянные видеоэлементы — всегда в DOM, ref никогда не меняется */}
           <video ref={remoteVideoRef} autoPlay playsInline muted className="hidden" />
+          {/* localVideoRef — скрытый, используется как источник srcObject.
+              Видимые PIP-элементы получают srcObject из него через useEffect */}
           <video ref={localVideoRef} autoPlay playsInline muted className="hidden" />
 
           {/* ========== CONNECTED + REMOTE VIDEO → Fullscreen remote ========== */}
-          {callState === 'connected' && hasRemoteVideo ? (
+          {callState === 'connected' && hasRemoteVideo && !isVideoOff ? (
             <>
               {/* Remote video fullscreen */}
               <div className="absolute inset-0 bg-black">
@@ -1841,10 +1887,18 @@ setCallState('connected');
                 />
               </div>
 
-              {/* Name + duration at top */}
-              <div className="absolute top-0 left-0 right-0 z-20 bg-gradient-to-b from-black/70 to-transparent pt-12 pb-8 px-4">
-                <p className="text-lg font-bold text-white text-center">{displayName}</p>
-                <p className="text-sm text-white/70 font-mono text-center">{formatDuration(duration)}</p>
+              {/* Name + duration at top + кнопка свернуть */}
+              <div className="absolute top-0 left-0 right-0 z-20 bg-gradient-to-b from-black/70 to-transparent pt-12 pb-8 px-4 flex items-start">
+                <button
+                  onClick={() => setIsMinimized(true)}
+                  className="w-10 h-10 rounded-full bg-black/50 flex items-center justify-center text-white/70 mr-3 mt-0.5 shrink-0"
+                >
+                  <Minus size={20} />
+                </button>
+                <div className="flex-1 text-center pr-12">
+                  <p className="text-lg font-bold text-white">{displayName}</p>
+                  <p className="text-sm text-white/70 font-mono">{formatDuration(duration)}</p>
+                </div>
               </div>
 
               {/* Local camera PIP — bottom-right */}
@@ -1949,7 +2003,7 @@ setCallState('connected');
                   </div>
                   <span className="text-xs text-zinc-400">Написать</span>
                 </button>
-                <button onClick={() => { setShowNoAnswerScreen(false); callEndedRef.current = false; setCallState('idle'); setTimeout(() => setCallState('calling'), 100); }} className="flex flex-col items-center gap-2">
+                <button onClick={() => { setShowNoAnswerScreen(false); callEndedRef.current = false; callInProgressRef.current = false; setCallState('idle'); }} className="flex flex-col items-center gap-2">
                   <div className="w-16 h-16 rounded-full bg-emerald-500/20 flex items-center justify-center text-emerald-400">
                     <Phone size={24} />
                   </div>
@@ -2108,11 +2162,17 @@ setCallState('connected');
         className="fixed inset-0 z-[100] flex items-center justify-center bg-surface/90 backdrop-blur-xl overflow-hidden"
         onClick={() => { setShowCameraMenu(false); setShowVolumeSlider(false); setShowMicMenu(false); }}
       >
-        {/* Ambient background glow for call modal */}
-        <div className="absolute inset-0 pointer-events-none opacity-40">
-          <div className="absolute top-[10%] left-[20%] w-[50vh] h-[50vh] bg-vortex-500/30 rounded-full blur-[120px] animate-float" />
-          <div className="absolute bottom-[10%] right-[20%] w-[50vh] h-[50vh] bg-emerald-500/20 rounded-full blur-[120px] animate-float-delayed" />
-        </div>
+        {/* Ambient background glow — static gradient instead of animated blur.
+            The previous version used two 50vh blur(120px) layers animating every
+            frame for the whole call duration — expensive to repaint on weaker
+            GPUs, especially while WebRTC encode/decode is already running. */}
+        <div
+          className="absolute inset-0 pointer-events-none opacity-30"
+          style={{
+            background:
+              'radial-gradient(circle at 20% 20%, rgba(139,92,246,0.25), transparent 45%), radial-gradient(circle at 80% 80%, rgba(16,185,129,0.18), transparent 45%)',
+          }}
+        />
 
         <motion.div
           initial={{ scale: 0.9, opacity: 0, y: 20 }}
@@ -2395,6 +2455,8 @@ setCallState('connected');
                     <SwitchCamera size={18} />
                   </button>
                 )}
+                {/* Демонстрация экрана — скрыта на Android (getDisplayMedia не поддерживается) */}
+                {!isAndroidWebView() && (
                 <button
                   onClick={toggleScreenShare}
                   className={`w-11 h-11 rounded-full flex items-center justify-center transition-colors ${isScreenSharing ? 'bg-vortex-500/30 text-vortex-400' : 'bg-white/10 text-white hover:bg-white/20'
@@ -2403,6 +2465,7 @@ setCallState('connected');
                 >
                   {isScreenSharing ? <MonitorOff size={18} /> : <Monitor size={18} />}
                 </button>
+                )}
                 {/* Speaker selector */}
                 <div className="relative">
                   <button
@@ -2440,7 +2503,8 @@ setCallState('connected');
                     </>
                   )}
                 </div>
-                {/* Noise suppression */}
+                {/* Noise suppression — скрыт на Android (не поддерживается) */}
+                {!isAndroidWebView() && (
                 <button
                   onClick={toggleNoiseSuppression}
                   className={`w-11 h-11 rounded-full flex items-center justify-center transition-colors ${noiseSuppression ? 'bg-emerald-500/20 text-emerald-400' : 'bg-white/10 text-white hover:bg-white/20'
@@ -2449,6 +2513,7 @@ setCallState('connected');
                 >
                   {noiseSuppression ? <ShieldCheck size={18} /> : <ShieldOff size={18} />}
                 </button>
+                )}
                 <button
                   onClick={endCallSafe}
                   className="w-14 h-14 rounded-full bg-red-500 hover:bg-red-600 flex items-center justify-center text-white shadow-xl shadow-red-500/30 transition-all hover:scale-105 ml-2"
