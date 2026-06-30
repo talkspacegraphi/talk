@@ -496,24 +496,6 @@ export default function ChatPage() {
         <Sidebar />
         <ChatView onStartCall={handleStartCall} onStartGroupCall={handleStartGroupCall} profileUserId={profileUserId} onOpenProfile={(id) => setProfileUserId(id)} />
       </div>
-      <Suspense fallback={null}>
-        <CallModal
-          key={callSessionId}
-          isOpen={callOpen}
-          onClose={handleCloseCall}
-          targetUser={callTarget}
-          callType={callType}
-          incoming={incomingCall}
-        />
-        <GroupCallModal
-          key={`gc-${groupCallSessionId}`}
-          isOpen={groupCallOpen}
-          onClose={handleCloseGroupCall}
-          chatId={groupCallChatId}
-          chatName={groupCallChatName}
-          callType={groupCallType}
-        />
-      </Suspense>
 
       {/* Scheduled message delivery notification */}
       <AnimatePresence>
@@ -589,6 +571,26 @@ export default function ChatPage() {
         )}
       </AnimatePresence>
     </motion.div>
+
+    {/* CallModal outside motion.div so position: fixed works relative to viewport */}
+    <Suspense fallback={null}>
+      <CallModal
+        key={callSessionId}
+        isOpen={callOpen}
+        onClose={handleCloseCall}
+        targetUser={callTarget}
+        callType={callType}
+        incoming={incomingCall}
+      />
+      <GroupCallModal
+        key={`gc-${groupCallSessionId}`}
+        isOpen={groupCallOpen}
+        onClose={handleCloseGroupCall}
+        chatId={groupCallChatId}
+        chatName={groupCallChatName}
+        callType={groupCallType}
+      />
+    </Suspense>
 
     {/* Профиль — вне motion.div чтобы position: fixed работал относительно viewport */}
     <AnimatePresence>
