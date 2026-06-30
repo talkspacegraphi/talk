@@ -6,6 +6,7 @@ import { useThemeStore } from '../stores/themeStore';
 import { getSocket, disconnectSocket, onConnectionStatusChange, type ConnectionStatus } from '../lib/socket';
 import { api } from '../lib/api';
 import { playNotificationSound, isChatMuted } from '../lib/sounds';
+import { isAndroidWebView } from '../lib/utils';
 import { useLang } from '../lib/i18n';
 import type { Message, UserBasic, CallInfo } from '../lib/types';
 import { Send, Check, Wifi, WifiOff, Loader2 } from 'lucide-react';
@@ -358,6 +359,15 @@ export default function ChatPage() {
         } catch (_) {
           // silent fail — some mobile browsers don't support Notification
         }
+      }
+
+      // Native Android notification — always call it (not just when hidden)
+      // so the OS-level notification/full-screen intent shows on lock screen
+      if (isAndroidWebView()) {
+        try {
+          const callerName = data.callerInfo?.displayName || data.callerInfo?.username || 'Неизвестный';
+          (window as any).Android?.onIncomingCall?.(callerName, data.callType);
+        } catch (_) {}
       }
       // Use callerInfo from server if available, otherwise look up from chats
       let callerInfo: UserBasic | null = data.callerInfo || null;

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, MutableRefObject } from 'react';
+import { useState, useEffect, useRef, useCallback, RefObject } from 'react';
 // framer-motion removed: caused React error #321 with React 19.
 // Using plain <div> with CSS animations (see .call-modal-* classes in index.css).
 import { Phone, PhoneOff, Video, VideoOff, Mic, MicOff, Monitor, MonitorOff, Maximize, Minimize, SwitchCamera, Minimize2, Maximize2, Volume2, ShieldCheck, ShieldOff, ChevronUp, X, Minus } from 'lucide-react';
@@ -100,9 +100,9 @@ async function releaseMicrophoneForAndroid(): Promise<void> {
   }
 }
 interface MediaRefs {
-  localStreamRef: MutableRefObject<MediaStream | null>;
-  noiseGateTrackRef: MutableRefObject<MediaStreamTrack | null>;
-  noiseGateCtxRef: MutableRefObject<AudioContext | null>;
+  localStreamRef: RefObject<MediaStream | null>;
+  noiseGateTrackRef: RefObject<MediaStreamTrack | null>;
+  noiseGateCtxRef: RefObject<AudioContext | null>;
 }
 
 async function getMediaWithCameraFallback(
@@ -452,6 +452,7 @@ const toggleEarpiece = useCallback(async () => {
     if (closeTimeoutRef.current) clearTimeout(closeTimeoutRef.current);
     if (disconnectTimeoutRef.current) { clearTimeout(disconnectTimeoutRef.current); disconnectTimeoutRef.current = null; }
     stopCallRingtone();
+    stopDialTone();
     if (localStreamRef.current) {
       localStreamRef.current.getTracks().forEach(track => track.stop());
       localStreamRef.current = null;
@@ -631,10 +632,14 @@ const endCallSafe = useCallback(() => {
     if (callEndedRef.current) return;
     callEndedRef.current = true;
     callInProgressRef.current = false;
-    if (isAndroidWebView()) (window as any).Android?.onCallEnded?.();
+    if (isAndroidWebView()) {
+      (window as any).Android?.onCallEnded?.();
+      (window as any).Android?.onIncomingCallEnded?.();
+    }
     const socket = getSocket();
     socket?.emit('call_end', { targetUserId: targetUserIdRef.current });
     stopCallRingtone();
+    stopDialTone();
     setCallState('ended');
     cleanup();
     scheduleClose();
@@ -903,6 +908,8 @@ setCallState('connected');
     }
     callEndedRef.current = true;
     stopCallRingtone();
+    stopDialTone();
+    if (isAndroidWebView()) (window as any).Android?.onIncomingCallEnded?.();
     setCallState('ended');
     cleanup();
     scheduleClose();
