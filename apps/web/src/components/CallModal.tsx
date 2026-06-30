@@ -1854,17 +1854,14 @@ setCallState('connected');
   );
 
   return (
-    <AnimatePresence>
+    <div className="call-modal-fade-in">
       <audio key="remote-audio" ref={remoteAudioRef} autoPlay playsInline />
 
       {/* === MOBILE CALL UI === */}
       {isMobile && !isMinimized && (callState === 'calling' || callState === 'connected' || callState === 'incoming' || showNoAnswerScreen) && (
-        <motion.div
+        <div
           key="mobile-call"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          className="fixed inset-0 z-[100] flex flex-col overflow-hidden"
+          className="call-modal-fade-in fixed inset-0 z-[100] flex flex-col overflow-hidden"
           style={{ background: 'linear-gradient(180deg, #0a0a0f 0%, #111118 40%, #111118 60%, #0a0a0f 100%)' }}
         >
           {/* Постоянные видеоэлементы — всегда в DOM, ref никогда не меняется */}
@@ -2101,17 +2098,14 @@ setCallState('connected');
               </div>
             </>
           )}
-        </motion.div>
+        </div>
       )}
 
       {/* === MINIMIZED VIEW === */}
       {isMinimized && callState === 'connected' ? (
-        <motion.div
+        <div
           key="call-minimized"
-          initial={{ opacity: 0, y: 50, scale: 0.8 }}
-          animate={{ opacity: 1, y: 0, scale: 1 }}
-          exit={{ opacity: 0, y: 50, scale: 0.8 }}
-          className="fixed bottom-6 right-6 z-[100] flex items-center gap-3 px-4 py-3 rounded-2xl glass-strong shadow-2xl shadow-black/50 border border-white/10 cursor-pointer select-none"
+          className="call-modal-pop-in fixed bottom-6 right-6 z-[100] flex items-center gap-3 px-4 py-3 rounded-2xl glass-strong shadow-2xl shadow-black/50 border border-white/10 cursor-pointer select-none"
           onClick={() => setIsMinimized(false)}
         >
           {/* Avatar */}
@@ -2147,19 +2141,16 @@ setCallState('connected');
           {/* Hidden remote video to keep stream alive */}
           <video ref={remoteVideoRef} autoPlay playsInline muted className="hidden" />
           <video ref={localVideoRef} autoPlay playsInline muted className="hidden" />
-        </motion.div>
+        </div>
       ) : (!isMobile || callState === 'idle') && (
 
       /* === FULL VIEW (desktop only) === */
-      <motion.div
+      <div
         key="call-overlay"
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
         role="dialog"
         aria-modal="true"
         aria-label="Call"
-        className="fixed inset-0 z-[100] flex items-center justify-center bg-surface/90 backdrop-blur-xl overflow-hidden"
+        className="call-modal-fade-in fixed inset-0 z-[100] flex items-center justify-center bg-surface/90 backdrop-blur-xl overflow-hidden"
         onClick={() => { setShowCameraMenu(false); setShowVolumeSlider(false); setShowMicMenu(false); }}
       >
         {/* Ambient background glow — static gradient instead of animated blur.
@@ -2174,12 +2165,8 @@ setCallState('connected');
           }}
         />
 
-        <motion.div
-          initial={{ scale: 0.9, opacity: 0, y: 20 }}
-          animate={{ scale: 1, opacity: 1, y: 0 }}
-          exit={{ scale: 0.9, opacity: 0, y: 20 }}
-          transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-          className={`relative w-full mx-4 rounded-[2.5rem] glass-strong shadow-2xl shadow-black/50 overflow-hidden border border-white/5 ${showVideoArea ? 'max-w-5xl' : 'max-w-md'
+        <div
+          className={`call-modal-pop-in relative w-full mx-4 rounded-[2.5rem] glass-strong shadow-2xl shadow-black/50 overflow-hidden border border-white/5 ${showVideoArea ? 'max-w-5xl' : 'max-w-md'
             }`}
         >
           {/* CustomTitleBar in App.tsx handles window controls — no need for duplicate here */}
@@ -2536,8 +2523,8 @@ setCallState('connected');
               <p className="text-sm text-zinc-500">{t('callEnded')}</p>
             )}
           </div>
-        </motion.div>
-      </motion.div>
+        </div>
+      </div>
       )}
 
       {/* Screen source picker for Electron */}
@@ -2546,6 +2533,6 @@ setCallState('connected');
         onClose={() => setShowScreenSourcePicker(false)}
         onSelect={handleScreenSourceSelect}
       />
-    </AnimatePresence>
+    </div>
   );
 }

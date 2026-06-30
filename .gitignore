@@ -4,6 +4,7 @@ node_modules/
 # Build output
 apps/server/dist/
 apps/web/dist/
+apps/desktop/dist-electron/
 
 # Environment files
 .env
