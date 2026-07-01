@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   User,
   Users,
@@ -26,15 +26,23 @@ type NavItem = {
   badge?: number;
 };
 
-export default function SettingsPanel() {
+interface SettingsPanelProps {
+  initialView?: 'main' | 'settings';
+}
+
+export default function SettingsPanel({ initialView }: SettingsPanelProps) {
   const { user, updateUser, logout } = useAuthStore();
   const clearStore = useChatStore(s => s.clearStore);
   const { chatTheme } = useThemeStore();
   const { t, lang, setLang } = useLang();
 
-  const [activeView, setActiveView] = useState<SideView>('main');
+  const [activeView, setActiveView] = useState<SideView>(initialView || 'main');
   const [friendRequestCount, setFriendRequestCount] = useState(0);
   const [showCustomization, setShowCustomization] = useState(false);
+
+  useEffect(() => {
+    if (initialView) setActiveView(initialView);
+  }, [initialView]);
 
   // Load friend request count
   useState(() => {

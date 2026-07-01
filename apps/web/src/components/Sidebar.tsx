@@ -5,6 +5,7 @@ import {
   Plus,
   MessageSquare,
   X,
+  User,
   Settings,
 } from 'lucide-react';
 import { useAuthStore } from '../stores/authStore';
@@ -33,7 +34,7 @@ export default function Sidebar() {
   const [storyGroups, setStoryGroups] = useState<StoryGroup[]>([]);
   const [storyViewerIndex, setStoryViewerIndex] = useState<number | null>(null);
   const [showCreateStory, setShowCreateStory] = useState(false);
-  const [activeTab, setActiveTab] = useState<'chats' | 'settings'>('chats');
+  const [activeTab, setActiveTab] = useState<'chats' | 'profile' | 'settings'>('chats');
 
   const loadStories = () => {
     api.getStories().then(setStoryGroups).catch(console.error);
@@ -69,6 +70,13 @@ export default function Sidebar() {
     return () => window.removeEventListener('resize', check);
   }, []);
 
+  const initials = (user?.displayName || user?.username || '??')
+    .split(' ')
+    .map((w: string) => w[0])
+    .join('')
+    .slice(0, 2)
+    .toUpperCase();
+
   return (
     <>
       <motion.div
@@ -78,52 +86,69 @@ export default function Sidebar() {
         style={{ willChange: 'transform, opacity' }}
         className={`w-full md:w-[400px] h-full bg-surface-secondary rounded-none md:rounded-3xl overflow-hidden border-0 md:border md:border-border/50 md:shadow-2xl ${isMobile ? 'absolute inset-0' : 'relative'} z-20 flex`}
       >
-        {/* Desktop: thin nav strip */}
-        <div className="hidden md:flex w-[56px] flex-shrink-0 bg-surface-secondary flex-col py-3 items-center gap-2 relative">
+        {/* Desktop: vertical nav strip — centered */}
+        <div className="hidden md:flex w-[68px] flex-shrink-0 bg-surface-secondary flex-col items-center justify-center gap-3 relative">
           <div className="absolute right-0 top-0 bottom-0 w-px bg-gradient-to-b from-transparent via-zinc-700/50 to-transparent" />
-          
-          {/* User avatar as nav indicator */}
+
+          {/* Talk logo — opens profile */}
           <button
-            onClick={() => setActiveTab(activeTab === 'chats' ? 'settings' : 'chats')}
-            className="w-10 h-10 rounded-xl overflow-hidden flex items-center justify-center hover:bg-surface-hover transition-colors"
-            title="Настройки"
+            onClick={() => setActiveTab(activeTab === 'chats' ? 'profile' : 'chats')}
+            className="w-12 h-12 rounded-2xl overflow-hidden flex items-center justify-center hover:bg-surface-hover transition-colors mb-2"
+            title="Профиль"
           >
-            {user?.avatar ? (
-              <img src={user.avatar} alt="" className={`w-8 h-8 rounded-lg object-cover ring-2 transition-all ${activeTab === 'settings' ? 'ring-vortex-500' : 'ring-transparent'}`} />
-            ) : (
-              <div className={`w-8 h-8 rounded-lg bg-gradient-to-br from-vortex-500 to-purple-600 flex items-center justify-center text-white text-[10px] font-bold ring-2 transition-all ${activeTab === 'settings' ? 'ring-vortex-500' : 'ring-transparent'}`}>
-                {(user?.displayName || user?.username || '??').split(' ').map((w: string) => w[0]).join('').slice(0, 2).toUpperCase()}
-              </div>
-            )}
+            <img src="/logo.png" alt="Talk" className="w-9 h-9 rounded-xl object-cover" />
           </button>
 
-          {/* Chats tab indicator */}
+          {/* Separator */}
+          <div className="w-8 h-px bg-gradient-to-r from-transparent via-zinc-600/50 to-transparent" />
+
+          {/* Chats */}
           <button
             onClick={() => setActiveTab('chats')}
-            className={`w-10 h-10 rounded-xl flex items-center justify-center transition-colors ${
-              activeTab === 'chats' ? 'bg-vortex-500/15 text-vortex-400' : 'text-zinc-500 hover:bg-surface-hover hover:text-zinc-300'
+            className={`w-12 h-12 rounded-2xl flex flex-col items-center justify-center gap-0.5 transition-all duration-200 ${
+              activeTab === 'chats' ? 'bg-vortex-500/15 text-vortex-400 shadow-lg shadow-vortex-500/10' : 'text-zinc-500 hover:bg-surface-hover hover:text-zinc-300'
             }`}
             title="Чаты"
           >
             <MessageSquare size={20} />
+            <span className="text-[9px] font-semibold leading-none">Чаты</span>
           </button>
 
-          {/* Settings tab indicator */}
+          {/* Profile */}
+          <button
+            onClick={() => setActiveTab('profile')}
+            className={`w-12 h-12 rounded-2xl flex flex-col items-center justify-center gap-0.5 transition-all duration-200 ${
+              activeTab === 'profile' ? 'bg-vortex-500/15 text-vortex-400 shadow-lg shadow-vortex-500/10' : 'text-zinc-500 hover:bg-surface-hover hover:text-zinc-300'
+            }`}
+            title="Профиль"
+          >
+            {user?.avatar ? (
+              <img src={user.avatar} alt="" className={`w-7 h-7 rounded-lg object-cover ring-2 transition-all ${activeTab === 'profile' ? 'ring-vortex-500' : 'ring-transparent'}`} />
+            ) : (
+              <div className={`w-7 h-7 rounded-lg bg-gradient-to-br from-vortex-500 to-purple-600 flex items-center justify-center text-white text-[9px] font-bold ring-2 transition-all ${activeTab === 'profile' ? 'ring-vortex-500' : 'ring-transparent'}`}>
+                {initials}
+              </div>
+            )}
+            <span className="text-[9px] font-semibold leading-none mt-0.5">Профиль</span>
+          </button>
+
+          {/* Settings */}
           <button
             onClick={() => setActiveTab('settings')}
-            className={`w-10 h-10 rounded-xl flex items-center justify-center transition-colors ${
-              activeTab === 'settings' ? 'bg-vortex-500/15 text-vortex-400' : 'text-zinc-500 hover:bg-surface-hover hover:text-zinc-300'
+            className={`w-12 h-12 rounded-2xl flex flex-col items-center justify-center gap-0.5 transition-all duration-200 ${
+              activeTab === 'settings' ? 'bg-vortex-500/15 text-vortex-400 shadow-lg shadow-vortex-500/10' : 'text-zinc-500 hover:bg-surface-hover hover:text-zinc-300'
             }`}
-            title={String(t('settings'))}
+            title="Настройки"
           >
             <Settings size={20} />
+            <span className="text-[9px] font-semibold leading-none">Ещё</span>
           </button>
         </div>
 
         {/* Main content area */}
         <div className="flex-1 flex flex-col overflow-hidden">
-          {activeTab === 'settings' ? (
-            <SettingsPanel />
+          {activeTab === 'profile' || activeTab === 'settings' ? (
+            <SettingsPanel initialView={activeTab === 'profile' ? 'main' : 'settings'} />
           ) : (
             <>
               {/* Header */}
@@ -135,8 +160,8 @@ export default function Sidebar() {
                 <button
                   onClick={() => setShowNewChat(true)}
                   className="p-2 rounded-lg hover:bg-surface-hover transition-colors text-zinc-400 hover:text-white"
-                  title={t('newChat')}
-                  aria-label={String(t('newChat'))}
+                  title={String(t('newChat') ?? 'Новый чат')}
+                  aria-label="Новый чат"
                 >
                   <Plus size={20} />
                 </button>
@@ -150,15 +175,14 @@ export default function Sidebar() {
                     type="search"
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    placeholder={t('searchChats')}
-                    aria-label={t('searchChats')}
+                    placeholder={String(t('searchChats') ?? 'Поиск')}
+                    aria-label="Поиск чатов"
                     className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-surface-tertiary text-sm text-white placeholder-zinc-500 border border-transparent focus:border-accent/50 focus:ring-1 focus:ring-accent/25 transition-all outline-none"
                   />
                   {searchQuery && (
                     <button
                       onClick={() => setSearchQuery('')}
                       className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300 transition-colors"
-                      aria-label={'Очистить поиск'}
                     >
                       <X size={14} />
                     </button>
@@ -235,40 +259,52 @@ export default function Sidebar() {
           )}
         </div>
 
-        {/* Mobile bottom nav */}
+        {/* Mobile bottom nav — 3 tabs */}
         <nav className="md:hidden fixed bottom-0 left-0 right-0 z-30 flex justify-center pointer-events-none" style={{ paddingBottom: 'env(safe-area-inset-bottom)' }} aria-label="Основная навигация">
-          <div className="pointer-events-auto mx-3 mb-2.5 bg-surface-secondary/95 backdrop-blur-xl rounded-full border border-border/50 shadow-2xl shadow-black/40 px-5 py-2.5 flex items-center justify-around gap-1">
+          <div className="pointer-events-auto mx-3 mb-2.5 bg-surface-secondary/95 backdrop-blur-xl rounded-full border border-border/50 shadow-2xl shadow-black/40 px-4 py-2 flex items-center justify-around">
+            {/* Chats */}
             <button
               role="tab"
               aria-selected={activeTab === 'chats'}
-              onClick={() => { setActiveTab('chats'); }}
-              className={`flex flex-col items-center gap-1 px-3 py-1 rounded-full transition-all duration-200 ${
-                activeTab === 'chats'
-                  ? 'text-vortex-400'
-                  : 'text-zinc-400 active:text-zinc-200'
+              onClick={() => setActiveTab('chats')}
+              className={`flex flex-col items-center gap-0.5 px-3 py-1 rounded-full transition-all duration-200 ${
+                activeTab === 'chats' ? 'text-vortex-400' : 'text-zinc-400 active:text-zinc-200'
               }`}
             >
-              <svg width="24" height="24" viewBox="0 0 24 24" fill={activeTab === 'chats' ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" />
-              </svg>
+              <MessageSquare size={22} strokeWidth={activeTab === 'chats' ? 2.2 : 1.8} />
               <span className={`text-[10px] leading-none ${activeTab === 'chats' ? 'font-bold' : 'font-semibold'}`}>Чаты</span>
             </button>
+
+            {/* Profile */}
             <button
-              onClick={() => { setActiveTab('settings'); }}
-              className={`flex flex-col items-center gap-1 px-3 py-1 rounded-full transition-all duration-200 ${
-                activeTab === 'settings'
-                  ? 'text-vortex-400'
-                  : 'text-zinc-400 active:text-zinc-200'
+              role="tab"
+              aria-selected={activeTab === 'profile'}
+              onClick={() => setActiveTab('profile')}
+              className={`flex flex-col items-center gap-0.5 px-3 py-1 rounded-full transition-all duration-200 ${
+                activeTab === 'profile' ? 'text-vortex-400' : 'text-zinc-400 active:text-zinc-200'
               }`}
             >
               {user?.avatar ? (
-                <img src={user.avatar} alt="" className={`w-6 h-6 rounded-full object-cover ring-2 transition-all ${activeTab === 'settings' ? 'ring-vortex-500' : 'ring-transparent'}`} />
+                <img src={user.avatar} alt="" className={`w-6 h-6 rounded-full object-cover ring-2 transition-all ${activeTab === 'profile' ? 'ring-vortex-500' : 'ring-transparent'}`} />
               ) : (
-                <div className={`w-6 h-6 rounded-full bg-gradient-to-br from-vortex-500 to-purple-600 flex items-center justify-center text-white text-[8px] font-bold ring-2 transition-all ${activeTab === 'settings' ? 'ring-vortex-500' : 'ring-transparent'}`}>
-                  {(user?.displayName || user?.username || '??').split(' ').map((w: string) => w[0]).join('').slice(0, 2).toUpperCase()}
+                <div className={`w-6 h-6 rounded-full bg-gradient-to-br from-vortex-500 to-purple-600 flex items-center justify-center text-white text-[8px] font-bold ring-2 transition-all ${activeTab === 'profile' ? 'ring-vortex-500' : 'ring-transparent'}`}>
+                  {initials}
                 </div>
               )}
-              <span className={`text-[10px] leading-none ${activeTab === 'settings' ? 'font-bold' : 'font-semibold'}`}>Профиль</span>
+              <span className={`text-[10px] leading-none ${activeTab === 'profile' ? 'font-bold' : 'font-semibold'}`}>Профиль</span>
+            </button>
+
+            {/* Settings */}
+            <button
+              role="tab"
+              aria-selected={activeTab === 'settings'}
+              onClick={() => setActiveTab('settings')}
+              className={`flex flex-col items-center gap-0.5 px-3 py-1 rounded-full transition-all duration-200 ${
+                activeTab === 'settings' ? 'text-vortex-400' : 'text-zinc-400 active:text-zinc-200'
+              }`}
+            >
+              <Settings size={22} strokeWidth={activeTab === 'settings' ? 2.2 : 1.8} />
+              <span className={`text-[10px] leading-none ${activeTab === 'settings' ? 'font-bold' : 'font-semibold'}`}>Ещё</span>
             </button>
           </div>
         </nav>
