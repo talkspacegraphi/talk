@@ -111,17 +111,37 @@ export const useAuthStore = create<AuthState>((set, get) => ({
           }
           break;
         }
+        // If network error (offline), let user in with token but no user data
+        if (!navigator.onLine || msg.includes('NetworkError') || msg.includes('Failed to fetch') || msg.includes('ERR_NETWORK')) {
+          console.warn('Offline mode: letting user in with cached token');
+          connectSocket(token);
+          set({ token, isLoading: false });
+          // Try to load user data later when online
+          window.addEventListener('online', () => {
+            api.getMe().then(({ user }) => {
+              set({ user });
+              connectSocket(token);
+            }).catch(() => {});
+          }, { once: true });
+          return;
+        }
         if (attempt < 7) {
           await new Promise(r => setTimeout(r, Math.min(1000 * (attempt + 1), 10000)));
         }
       }
     }
     console.warn('checkAuth failed:', lastError);
-    localStorage.removeItem('vortex_token');
-    localStorage.removeItem('vortex_refresh_token');
-    api.setToken(null);
-    api.setRefreshToken(null);
-    set({ token: null, user: null, isLoading: false });
+    // Don't clear token on network errors — let user retry manually
+    const isNetworkError = !navigator.onLine || String(lastError).includes('NetworkError') || String(lastError).includes('Failed to fetch') || String(lastError).includes('ERR_NETWORK');
+    if (!isNetworkError) {
+      localStorage.removeItem('vortex_token');
+      localStorage.removeItem('vortex_refresh_token');
+      api.setToken(null);
+      api.setRefreshToken(null);
+      set({ token: null, user: null, isLoading: false });
+    } else {
+      set({ isLoading: false });
+    }
   },
 
   updateUser: (data) => {

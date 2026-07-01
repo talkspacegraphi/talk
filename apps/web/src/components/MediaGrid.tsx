@@ -14,6 +14,7 @@ interface MediaGridProps {
 }
 
 function isGifItem(item: MediaItem): boolean {
+  if (!item.url) return false;
   return item.url.toLowerCase().includes('.gif') || (item.filename?.toLowerCase().endsWith('.gif') ?? false);
 }
 
@@ -105,6 +106,7 @@ export default function MediaGrid({ media, isMine, hasContent, onFavoriteGif, fa
                 className="max-w-full max-h-80 w-full object-cover cursor-pointer hover:brightness-90 transition-all"
                 onClick={() => openLightbox(0)}
                 style={gif ? { imageRendering: 'auto' } : undefined}
+                onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
               />
               {gif && onFavoriteGif && (
                 <button

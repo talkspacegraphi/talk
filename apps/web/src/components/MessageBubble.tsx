@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, memo, useMemo, useCallback, lazy, Suspense } from 'react';
+import React, { useState, useRef, useEffect, memo, useMemo, useCallback, lazy, Suspense } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -21,6 +21,20 @@ const MediaGrid = lazy(() => import('./MediaGrid'));
 
 function MediaFallback() {
   return <div className="w-full h-32 bg-white/5 rounded-xl animate-pulse" />;
+}
+
+class MediaErrorBoundary extends React.Component<
+  { children: React.ReactNode; fallback?: React.ReactNode },
+  { hasError: boolean }
+> {
+  state = { hasError: false };
+  static getDerivedStateFromError() { return { hasError: true }; }
+  render() {
+    if (this.state.hasError) {
+      return this.props.fallback || <div className="w-full h-24 bg-white/5 rounded-xl flex items-center justify-center text-zinc-500 text-xs">Медиа не загрузилось</div>;
+    }
+    return this.props.children;
+  }
 }
 
 interface MessageBubbleProps {
@@ -353,17 +367,19 @@ function MessageBubble({
 
             {/* Media (images + videos) */}
             {(hasImage || hasVideo) && (
-              <LazyMedia className="max-w-full overflow-hidden">
-                <Suspense fallback={<MediaFallback />}>
-                  <MediaGrid
-                    media={media.filter((m) => m.type === 'image' || m.type === 'video')}
-                    isMine={isMine}
-                    hasContent={!!message.content}
-                    onFavoriteGif={handleToggleFavoriteGif}
-                    favoriteGifs={favoriteGifUrls}
-                  />
-                </Suspense>
-              </LazyMedia>
+              <MediaErrorBoundary>
+                <LazyMedia className="max-w-full overflow-hidden">
+                  <Suspense fallback={<MediaFallback />}>
+                    <MediaGrid
+                      media={media.filter((m) => m.type === 'image' || m.type === 'video')}
+                      isMine={isMine}
+                      hasContent={!!message.content}
+                      onFavoriteGif={handleToggleFavoriteGif}
+                      favoriteGifs={favoriteGifUrls}
+                    />
+                  </Suspense>
+                </LazyMedia>
+              </MediaErrorBoundary>
             )}
 
             {/* Voice */}

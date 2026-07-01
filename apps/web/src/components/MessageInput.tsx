@@ -580,16 +580,24 @@ export default memo(function MessageInput({ chatId, isBlocked, blockedByOther, o
       recorder.onstop = async () => {
         stream.getTracks().forEach((t) => t.stop());
         streamRef.current = null;
-        const blob = new Blob(chunksRef.current, { type: mimeType });
+        const currentChunks = [...chunksRef.current];
+        chunksRef.current = [];
+        mediaRecorderRef.current = null;
+        const blob = new Blob(currentChunks, { type: mimeType });
         if (blob.size === 0) {
           console.warn('[voice] Empty blob, skipping upload');
           cleanupAnalyser();
-          setIsRecording(false);
-          setIsRecordingLocked(false);
-          setRecordingTime(0);
-          recordingTimeRef.current = 0;
           return;
         }
+
+        // Enforce 1-second minimum duration
+        const duration = recordingTimeRef.current;
+        if (duration < 1) {
+          console.warn('[voice] Recording too short (<1s), discarding');
+          cleanupAnalyser();
+          return;
+        }
+
         const file = new File([blob], `voice.${ext}`, { type: mimeType });
 
         try {
@@ -676,16 +684,20 @@ export default memo(function MessageInput({ chatId, isBlocked, blockedByOther, o
   };
 
   const stopRecording = () => {
+    // Capture chunks before recorder.stop() triggers onstop (which is async)
+    // onstop will handle blob creation and upload, then clean up chunks
     if (mediaRecorderRef.current?.state === 'recording') {
       mediaRecorderRef.current.stop();
+    } else {
+      // Already stopped (e.g., empty blob guard fired), clean up now
+      mediaRecorderRef.current = null;
+      chunksRef.current = [];
     }
     // Stop stream immediately
     if (streamRef.current) {
       streamRef.current.getTracks().forEach(t => t.stop());
       streamRef.current = null;
     }
-    mediaRecorderRef.current = null;
-    chunksRef.current = [];
     if (timerRef.current) clearInterval(timerRef.current);
     cleanupAnalyser();
     setIsRecording(false);
