@@ -47,6 +47,7 @@ export default function App() {
   }
 
   return (
+    <>
     <ErrorBoundary>
       <CustomTitleBar />
       <Suspense
@@ -64,30 +65,30 @@ export default function App() {
           )}
         </AnimatePresence>
       </Suspense>
-
-      {/* CallModals rendered OUTSIDE AnimatePresence so position: fixed escapes its stacking context */}
-      {token && user && (
-        <Suspense fallback={null}>
-          <CallModal
-            key={`call-${call.sessionId}`}
-            isOpen={call.isOpen}
-            onClose={closeCall}
-            targetUser={call.targetUser}
-            callType={call.callType}
-            incoming={call.incoming}
-          />
-          <GroupCallModal
-            key={`gc-${groupCall.sessionId}`}
-            isOpen={groupCall.isOpen}
-            onClose={closeGroupCall}
-            chatId={groupCall.chatId}
-            chatName={groupCall.chatName}
-            callType={groupCall.callType}
-          />
-        </Suspense>
-      )}
-
     </ErrorBoundary>
+
+    {/* CallModals rendered OUTSIDE ErrorBoundary + AnimatePresence for proper z-index */}
+    {token && user && (
+      <Suspense fallback={null}>
+        <CallModal
+          key={`call-${call.sessionId}`}
+          isOpen={call.isOpen}
+          onClose={closeCall}
+          targetUser={call.targetUser}
+          callType={call.callType}
+          incoming={call.incoming}
+        />
+        <GroupCallModal
+          key={`gc-${groupCall.sessionId}`}
+          isOpen={groupCall.isOpen}
+          onClose={closeGroupCall}
+          chatId={groupCall.chatId}
+          chatName={groupCall.chatName}
+          callType={groupCall.callType}
+        />
+      </Suspense>
+    )}
+    </>
   );
 }
 

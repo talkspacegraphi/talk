@@ -67,26 +67,22 @@ export const useCallStore = create<CallStore>((set) => ({
     })),
 
   closeCall: () =>
-    set({
+    set((s) => ({
       call: {
+        ...s.call,
         isOpen: false,
         targetUser: null,
-        callType: 'voice',
         incoming: null,
-        sessionId: 0,
       },
-    }),
+    })),
 
   closeGroupCall: () =>
-    set({
+    set((s) => ({
       groupCall: {
+        ...s.groupCall,
         isOpen: false,
-        chatId: '',
-        chatName: '',
-        callType: 'voice',
-        sessionId: 0,
       },
-    }),
+    })),
 
   setIncomingCall: (data) =>
     set((s) => ({
