@@ -1,4 +1,3 @@
-import { motion } from 'framer-motion';
 import {
   User,
   Users,
@@ -36,7 +35,7 @@ export default function MainView({ ctx, friendRequestCount }: MainViewProps) {
   ];
 
   return (
-    <motion.div key="main" className="flex flex-col h-full" initial={false} animate="center" exit="exit" variants={{ enter: (_dir: number) => ({ x: 0, opacity: 1 }), center: { x: 0, opacity: 1 }, exit: (_dir: number) => ({ x: 0, opacity: 0 }) }} custom={-1} transition={{ duration: 0.2 }}>
+    <div className="flex flex-col h-full">
       {/* Premium header with avatar */}
       <div className="relative overflow-hidden flex-shrink-0">
         <div className="absolute inset-0 bg-gradient-to-br from-vortex-500/40 via-purple-600/25 to-transparent pointer-events-none" />
@@ -117,6 +116,6 @@ export default function MainView({ ctx, friendRequestCount }: MainViewProps) {
           <span className="text-[13.5px] font-medium text-red-400/70 group-hover:text-red-400 transition-colors">{t('logout')}</span>
         </button>
       </div>
-    </motion.div>
+    </div>
   );
 }

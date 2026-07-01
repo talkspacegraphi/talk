@@ -1,5 +1,4 @@
 import { useState, useRef } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
 import { X, Upload, Palette, Sparkles, Loader2 } from 'lucide-react';
 import { api } from '../lib/api';
 import { useAuthStore } from '../stores/authStore';
@@ -121,19 +120,13 @@ export default function ProfileCustomization({ onClose, initialTab = 'decoration
   const initials = user?.displayName?.slice(0, 2).toUpperCase() || user?.username?.slice(0, 2).toUpperCase() || '??';
 
   return (
-    <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+    <div
+      className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-[fadeIn_200ms_ease-out]"
       onClick={onClose}
     >
-      <motion.div
-        initial={{ scale: 0.95, opacity: 0 }}
-        animate={{ scale: 1, opacity: 1 }}
-        exit={{ scale: 0.95, opacity: 0 }}
+      <div
         onClick={(e) => e.stopPropagation()}
-        className="bg-surface-secondary rounded-3xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col border border-border"
+        className="bg-surface-secondary rounded-3xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col border border-border animate-[scaleIn_200ms_ease-out]"
       >
         {/* Header */}
         <div className="flex items-center justify-between p-5 border-b border-border/50">
@@ -299,7 +292,7 @@ export default function ProfileCustomization({ onClose, initialTab = 'decoration
           onChange={handleAvatarUpload}
           className="hidden"
         />
-      </motion.div>
-    </motion.div>
+      </div>
+    </div>
   );
 }

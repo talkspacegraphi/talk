@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
 import {
   ArrowLeft,
   ChevronLeft,
@@ -26,7 +25,7 @@ export default function ThemesView({ ctx }: ThemesViewProps) {
   const isActive = chatTheme === currentCard.id;
 
   return (
-    <motion.div key="themes" className="flex flex-col h-full" initial={{ x: 100, opacity: 0 }} animate={{ x: 0, opacity: 1 }} exit={{ x: 100, opacity: 0 }} transition={{ duration: 0.2 }}>
+    <div className="flex flex-col h-full">
       <div className="h-14 flex items-center gap-3 px-4 border-b border-border flex-shrink-0">
         <button onClick={() => changeView('settings')} className="p-1.5 rounded-lg text-zinc-400 hover:text-white hover:bg-white/10 transition-colors">
           <ArrowLeft size={20} />
@@ -37,16 +36,7 @@ export default function ThemesView({ ctx }: ThemesViewProps) {
 
       <div className="flex-1 flex flex-col items-center justify-center px-5 py-4 gap-4 overflow-hidden">
         {/* Preview card */}
-        <AnimatePresence mode="wait">
-          <motion.div
-            key={currentCard.id}
-            initial={{ opacity: 0, scale: 0.92, x: 40 }}
-            animate={{ opacity: 1, scale: 1, x: 0 }}
-            exit={{ opacity: 0, scale: 0.92, x: -40 }}
-            transition={{ duration: 0.25, ease: 'easeOut' }}
-            className="w-full rounded-2xl overflow-hidden border border-border/40 shadow-xl flex flex-col"
-            style={{ minHeight: 200 }}
-          >
+        <div key={currentCard.id} className="w-full rounded-2xl overflow-hidden border border-border/40 shadow-xl flex flex-col" style={{ minHeight: 200 }}>
             <div
               className={`relative w-full h-32 chat-theme-${currentCard.id}`}
               style={currentCard.gradient ? { background: currentCard.gradient } : { backgroundColor: currentCard.color }}
@@ -73,8 +63,7 @@ export default function ThemesView({ ctx }: ThemesViewProps) {
               </div>
               <p className="text-xs text-zinc-400 ml-6">{lang === 'ru' ? currentCard.desc : currentCard.descEn}</p>
             </div>
-          </motion.div>
-        </AnimatePresence>
+          </div>
 
         {/* Navigation arrows + select */}
         <div className="flex items-center gap-3 w-full">
@@ -149,6 +138,6 @@ export default function ThemesView({ ctx }: ThemesViewProps) {
           </div>
         </div>
       </div>
-    </motion.div>
+    </div>
   );
 }

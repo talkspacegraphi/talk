@@ -1,5 +1,4 @@
 import { useState, useEffect, useRef } from 'react';
-import { motion } from 'framer-motion';
 import {
   ArrowLeft,
   Loader2,
@@ -123,7 +122,7 @@ export default function FriendsView({ ctx }: FriendsViewProps) {
   }, [friendSearch, friends, user?.id]);
 
   return (
-    <motion.div key="friends" className="flex flex-col h-full" initial={{ x: 100, opacity: 0 }} animate={{ x: 0, opacity: 1 }} exit={{ x: 100, opacity: 0 }} transition={{ duration: 0.2 }}>
+    <div className="flex flex-col h-full">
       <div className="h-14 flex items-center gap-3 px-4 border-b border-border flex-shrink-0">
         <button onClick={() => { changeView('main'); setFriendSearch(''); setFriendSearchResults([]); }} className="p-1.5 rounded-lg text-zinc-400 hover:text-white hover:bg-white/10 transition-colors">
           <ArrowLeft size={20} />
@@ -290,6 +289,6 @@ export default function FriendsView({ ctx }: FriendsViewProps) {
           </>
         )}
       </div>
-    </motion.div>
+    </div>
   );
 }

@@ -1,5 +1,4 @@
 import { useState, useRef } from 'react';
-import { motion } from 'framer-motion';
 import {
   ArrowLeft,
   Camera,
@@ -80,7 +79,7 @@ export default function ProfileView({ ctx }: ProfileViewProps) {
   };
 
   return (
-    <motion.div key="profile" className="flex flex-col h-full" initial={{ x: 100, opacity: 0 }} animate={{ x: 0, opacity: 1 }} exit={{ x: 100, opacity: 0 }} transition={{ duration: 0.2 }}>
+    <div className="flex flex-col h-full">
       {/* Header */}
       <div className="flex items-center justify-between p-5 border-b border-white/5 bg-white/5 relative overflow-hidden flex-shrink-0">
         <div className="absolute inset-0 bg-gradient-to-r from-vortex-500/20 to-purple-500/10 pointer-events-none" />
@@ -253,6 +252,6 @@ export default function ProfileView({ ctx }: ProfileViewProps) {
           </div>
         )}
       </div>
-    </motion.div>
+    </div>
   );
 }

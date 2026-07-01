@@ -472,6 +472,27 @@ body.font-serif {
   }
 }
 
+/* === Modal/overlay animations === */
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes scaleIn {
+  from { opacity: 0; transform: scale(0.95); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+@keyframes slideInRight {
+  from { transform: translateX(100%); }
+  to   { transform: translateX(0); }
+}
+
+@keyframes slideInLeft {
+  from { transform: translateX(-100%); }
+  to   { transform: translateX(0); }
+}
+
 /* === Call modal animations (replaces framer-motion to fix React #321) === */
 @keyframes call-modal-fade-in {
   from { opacity: 0; }
